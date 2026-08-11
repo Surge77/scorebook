@@ -84,7 +84,7 @@ jobs:
       # A weekly key still picks up a new season within a week, and restore-keys means a
       # stale archive is preferred to no archive.
       - name: Cache the archive
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/scorebook
           key: cricsheet-ipl-${{ steps.stamp.outputs.week }}
@@ -135,7 +135,7 @@ jobs:
       # populates the cache for the other. See that job for why it is dated rather than
       # hashed.
       - name: Cache the archive
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/scorebook
           key: cricsheet-ipl-${{ steps.stamp.outputs.week }}
