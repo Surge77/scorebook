@@ -100,14 +100,18 @@ jobs:
       # The committed sample must work with no network at all — this is the
       # first thing a fresh clone does, and the thing most likely to rot.
       #
-      # Asserts the two matches and both season formats rather than an exact row
-      # count: regenerating the sample after a new season changes the row count
-      # legitimately, and a build that goes red every May trains people to ignore it.
+      # Proves the CLI works with no network. Asserts the match count, not the row
+      # count: regenerating the sample after a new season changes rows legitimately,
+      # and a build that goes red every May trains people to ignore it.
+      #
+      # The sample's real invariants — that it carries both `season` formats and a
+      # pre-rename team name, which is the whole reason it is stratified rather than
+      # random — are asserted in tests/test_sample.py, so they hold for every
+      # `pytest` run and not only here.
       - name: Describe the committed sample offline
         run: |
           python -m scorebook describe --sample data/sample_deliveries.csv --clean | tee out.txt
           grep -qE "matches   2$" out.txt
-          grep -qE "seasons   2$" out.txt
           grep -q "season_year" out.txt
           echo "offline path works"
 
