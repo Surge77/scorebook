@@ -11,7 +11,7 @@ scoped without checking whether the loaded data could answer it. It could not.
 The outcomes are in the archive, in 1,243 `<match_id>_info.csv` members that nothing read.
 They are not tabular. Each line is `info,<key>,<value>`, with a fourth field on some rows:
 
-```
+```csv
 version,2.3.0
 info,team,Sunrisers Hyderabad
 info,team,Royal Challengers Bangalore

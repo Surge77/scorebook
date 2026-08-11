@@ -196,12 +196,16 @@ def _parse_info_member(raw: bytes, member: str) -> dict[str, str | None]:
         elif key in schemas.INFO_SCALAR_KEYS:
             record.setdefault(key, value)
 
-    if "match_id" not in record:
-        raise schemas.SchemaError(
-            f"{member} has no `info,match_id` row, so it cannot be joined to the "
-            "deliveries. The upstream info format may have changed; update "
-            "src/scorebook/data/schemas.py."
-        )
+    # Both are present in all 1,243 members today. Missing either is an upstream format
+    # change, and both fail silently if allowed through: no match_id cannot be joined to
+    # the deliveries, and no date yields a NaT that quietly drops the row out of every
+    # date filter and season grouping rather than raising.
+    for required, key in (("match_id", "match_id"), (schemas.DATE_COLUMN, "date")):
+        if required not in record:
+            raise schemas.SchemaError(
+                f"{member} has no `info,{key}` row. The upstream info format may have "
+                "changed; update src/scorebook/data/schemas.py."
+            )
     # Padded rather than indexed: an abandoned fixture with one named team should come
     # back with a null opponent, not an IndexError.
     padded = [*teams, None, None]

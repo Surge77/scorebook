@@ -91,6 +91,16 @@ def test_a_member_without_a_match_id_names_the_file(
         loaders.load_match_info(cache_dir, download=False)
 
 
+def test_a_member_without_a_date_is_refused(
+    cache_dir: Path, make_archive: Callable[..., Path]
+):
+    """A missing date would come through as NaT, which drops the row out of every date
+    filter and season grouping without raising — the quietest possible failure."""
+    make_archive(cache_dir, info={"99_info.csv": b"version,2.3.0\ninfo,match_id,99\n"})
+    with pytest.raises(schemas.SchemaError, match=r"info,date"):
+        loaders.load_match_info(cache_dir, download=False)
+
+
 def test_an_archive_without_info_members_fails_loudly(
     cache_dir: Path, make_archive: Callable[..., Path]
 ):

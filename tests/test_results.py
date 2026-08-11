@@ -31,6 +31,9 @@ LAST_OVER = 19
 # 2009 was played in South Africa and 2020 in the UAE, so nobody was at home.
 ABROAD = frozenset({2009, 2020})
 
+# Below this, a team's home or away record in one era is too thin to compare.
+MIN_MATCHES_PER_ERA = 15
+
 
 @pytest.fixture(scope="session")
 def deliveries() -> pd.DataFrame:
@@ -48,7 +51,12 @@ def match_info() -> pd.DataFrame:
 
 
 def _rate_by_over(deliveries: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Runs and the two denominators: overs reached, and every innings."""
+    """Returns `(runs, reaching, naive)`, all indexed by over.
+
+    `runs` is total runs in each over and `reaching` is the count of innings that got to
+    it — the correct denominator. `naive` is already a rate, runs over *every* innings,
+    kept because results.md quotes it as the mistake that inverted the answer.
+    """
     reaching = (
         deliveries[["match_id", "innings", "over"]]
         .drop_duplicates()
@@ -152,7 +160,13 @@ def test_q4_the_info_files_still_carry_the_winners(match_info: pd.DataFrame):
     assert match_info.venue.nunique() == 36, "60 raw strings collapse to 36 grounds"
 
 
-def test_q4_home_advantage_matches_the_stated_table(match_info: pd.DataFrame):
+def _home_and_away(match_info: pd.DataFrame) -> pd.DataFrame:
+    """One row per team per decided match, flagged home or away.
+
+    "Home" is a team's modal ground, which is the notebook's analytical choice — repeated
+    here rather than imported, because the point is to catch the documented numbers
+    moving, and a shared implementation could move with them.
+    """
     appearances = pd.concat([
         match_info[["match_id", "venue", "winner", side]]
         .assign(year=match_info.start_date.dt.year)
@@ -172,9 +186,13 @@ def test_q4_home_advantage_matches_the_stated_table(match_info: pd.DataFrame):
     decided = domestic[domestic.winner.notna()].merge(
         home[["team", "venue"]].rename(columns={"venue": "home"}), on="team", how="left"
     )
-    decided = decided.assign(
+    return decided.assign(
         at_home=decided.venue == decided.home, won=decided.winner == decided.team
     )
+
+
+def test_q4_home_advantage_matches_the_stated_table(match_info: pd.DataFrame):
+    decided = _home_and_away(match_info)
 
     assert round(decided[decided.at_home].won.mean(), 3) == 0.533
     assert round(decided[~decided.at_home].won.mean(), 3) == 0.482
@@ -185,6 +203,42 @@ def test_q4_home_advantage_matches_the_stated_table(match_info: pd.DataFrame):
     )
     assert round(advantage, 3) == 0.195, "the largest home advantage in results.md"
     assert sunrisers[sunrisers.at_home].venue.iloc[0] == "Rajiv Gandhi International Stadium"
+
+
+def test_q4_home_advantage_is_collapsing_across_the_eras(match_info: pd.DataFrame):
+    """Q4's falsification criterion was "no venue's advantage survives separating eras",
+    so the era split is what decides the verdict — not the pooled table above it. Pinned
+    separately because results.md rests the whole answer on these three numbers."""
+    decided = _home_and_away(match_info)
+    decided = decided.assign(
+        era=pd.cut(decided.year, [2007, 2015, 2026], labels=["2008-2015", "2016-2026"])
+    )
+    rates = decided.groupby(["era", "at_home"], observed=True)["won"].mean()
+
+    early = rates["2008-2015", True] - rates["2008-2015", False]
+    late = rates["2016-2026", True] - rates["2016-2026", False]
+    assert round(early, 3) == 0.085
+    assert round(late, 3) == 0.026
+    assert late < early, "home advantage is reported as shrinking, not growing"
+
+    survived = []
+    for (team, era), group in decided.groupby(["team", "era"], observed=True):
+        home, away = group[group.at_home], group[~group.at_home]
+        if len(home) >= MIN_MATCHES_PER_ERA and len(away) >= MIN_MATCHES_PER_ERA:
+            survived.append({"team": team, "era": str(era),
+                             "advantage": home.won.mean() - away.won.mean()})
+
+    eras = pd.DataFrame(survived).pivot(
+        index="team", columns="era", values="advantage"
+    ).dropna()
+    both_positive = (eras.iloc[:, 0] > 0) & (eras.iloc[:, 1] > 0)
+    assert len(eras) == 8
+    assert int(both_positive.sum()) == 4, "four of eight is why Q4 is not falsified"
+    # Rajasthan led the early era and reverses in the late one, which is the single
+    # sentence that stops the pooled ranking being read as current.
+    early_era, late_era = eras.columns[0], eras.columns[1]
+    assert round(eras[early_era]["Rajasthan Royals"], 3) == 0.264
+    assert eras[late_era]["Rajasthan Royals"] < 0
 
 
 def test_q5_wides_are_rising_and_no_balls_are_falling(deliveries: pd.DataFrame):

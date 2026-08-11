@@ -29,7 +29,7 @@ cricsheet.org ──► loaders.download_archive() ──► ~/.cache/scorebook/
 
 The same archive holds a second frame at a different grain, read separately:
 
-```
+```text
         ipl_csv2.zip
               │  1,243 × <match_id>_info.csv   (key-value long format)
               ▼

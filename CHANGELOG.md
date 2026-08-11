@@ -135,5 +135,6 @@ analysis. **No findings yet** — `docs/results.md` is deliberately a stub.
 - **The 1,243 `_info.csv` files are unused.** They hold toss and match winner in key-value
   long format. Question 4 needs them, so question 4 may be deferred.
 
+[0.2.0]: https://github.com/Surge77/scorebook/releases/tag/v0.2.0
 [0.1.1]: https://github.com/Surge77/scorebook/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Surge77/scorebook/releases/tag/v0.1.0

@@ -174,7 +174,8 @@ move in opposite directions.
 **Caveat.** The denominator is every delivery, which is only correct because
 `clean.fill_extras` turned 96.7% and 99.6% null columns into zeros
 ([ADR 0003](decisions/0003-informative-nulls.md)). Left null, both rates would be computed
-over the few thousand deliveries that conceded an extra and be wrong by a factor of ~30.
+over only the deliveries that conceded that extra — inflating the wide rate by roughly 30×
+and the no-ball rate by roughly 250×, since the two columns are null to different degrees.
 
 **Chart.** `reports/q5_wides_and_noballs.png`
 
@@ -208,20 +209,27 @@ produced before the fix was wrong in its ordering, not just its precision.
 least 19 overs. For a *first* innings that is backwards: a first innings only ends early by
 being bowled out or rained off, and being bowled out is part of the effect. Short first
 innings are **23.3%** first-over-wicket against a **16.0%** base rate, so the filter removes
-exactly the collapses the question is about. The estimate survives it (−12.29 against
+exactly the collapses the question is about. The estimate survives it (−12.26 against
 −12.52), so nothing changed here — but it would have on a smaller effect, and the guard was
 recommended in this repository, in writing, before anyone checked.
 
-**4. Two of the five hypotheses were wrong.** Q5 is falsified outright. Q1's "steeper than
+**4. And the first version of that filter counted rows, not overs.** `balls < 114` reads as
+"under 19 overs" and is not — a row is a delivery *recorded*, so an innings with six wides
+carries six more rows than its overs imply, and the threshold quietly selects for innings
+with few extras. On this archive both definitions pick the same 43 innings and the
+sensitivity figure moved by 0.03 runs, so nothing here was affected. That was luck. Caught
+in review, and now counted with `over.nunique()`.
+
+**5. Two of the five hypotheses were wrong.** Q5 is falsified outright. Q1's "steeper than
 the powerplay" is false, though its headline claim holds. Q2's "less than commentary
 implies" is doubtful at +18.9%. Three of five landing cleanly would have been a sign the
 questions were too safe.
 
-**5. Nothing here is causal, and two questions were phrased as though they were.** Q3 asks
+**6. Nothing here is causal, and two questions were phrased as though they were.** Q3 asks
 whether a wicket "reduces" a total and can only show association. Q4 asks which venue
 "shows" an advantage and measures teams at grounds, not grounds.
 
-**6. `actual_delivery` is still unresolved rather than understood.** It disagrees with
+**7. `actual_delivery` is still unresolved rather than understood.** It disagrees with
 `ball` on 12.05% of rows. Nothing above depends on it, which is not the same as it being
 harmless — [ADR 0002](decisions/0002-ball-not-actual-delivery.md) documents the exposure
 rather than claiming the choice is proven right.
