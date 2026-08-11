@@ -80,6 +80,67 @@ def test_canonical_teams_does_not_mutate_its_argument():
     assert frame["batting_team"].tolist() == ["Kings XI Punjab"]
 
 
+# --- venues --------------------------------------------------------------------------
+
+
+def venue_frame(names: list[str]) -> pd.DataFrame:
+    return pd.DataFrame({"venue": pd.Series(names, dtype="category")})
+
+
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [
+        # A city suffix that appears in some seasons and not others.
+        ("Eden Gardens, Kolkata", "Eden Gardens"),
+        ("Wankhede Stadium, Mumbai", "Wankhede Stadium"),
+        # Punctuation only.
+        ("M.Chinnaswamy Stadium", "M Chinnaswamy Stadium"),
+        # A genuine rename, mapped forward like the team names are.
+        ("Feroz Shah Kotla", "Arun Jaitley Stadium"),
+        ("Sardar Patel Stadium, Motera", "Narendra Modi Stadium"),
+        ("Subrata Roy Sahara Stadium", "Maharashtra Cricket Association Stadium"),
+    ],
+)
+def test_venue_spellings_collapse_onto_one_ground(written: str, expected: str):
+    assert clean.canonical_venues(venue_frame([written]))["venue"].tolist() == [expected]
+
+
+def test_chepauk_is_one_ground_not_three():
+    """The trap this exists for. Cricsheet writes Chepauk three ways, split almost exactly
+    at 2016, so grouping by the raw string shows Chennai abandoning their own ground
+    halfway through the league and every home sample looking too small to trust."""
+    frame = venue_frame([
+        "MA Chidambaram Stadium",
+        "MA Chidambaram Stadium, Chepauk",
+        "MA Chidambaram Stadium, Chepauk, Chennai",
+    ])
+    assert clean.canonical_venues(frame)["venue"].nunique() == 1
+
+
+def test_canonical_venues_preserves_category_dtype():
+    out = clean.canonical_venues(venue_frame(["Eden Gardens, Kolkata"]))
+    assert str(out["venue"].dtype) == "category"
+
+
+def test_canonical_venues_tolerates_a_missing_venue_column():
+    frame = frame_from([{"batting_team": "Mumbai Indians"}])
+    assert list(clean.canonical_venues(frame).columns) == ["batting_team"]
+
+
+def test_canonical_venues_does_not_mutate_its_argument():
+    frame = venue_frame(["Feroz Shah Kotla"])
+    clean.canonical_venues(frame)
+    assert frame["venue"].tolist() == ["Feroz Shah Kotla"]
+
+
+def test_every_rename_target_is_itself_canonical():
+    """A two-step rename would leave the first target stranded as its own ground."""
+    targets = set(clean.VENUE_RENAMES.values())
+    assert not targets & set(clean.VENUE_RENAMES), (
+        "a rename target is also a rename key, so one ground still resolves to two names"
+    )
+
+
 # --- season year ---------------------------------------------------------------------
 
 
