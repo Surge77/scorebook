@@ -27,7 +27,7 @@ Null percentages are of all 295,732 rows. **Loaded** marks the 16 columns in
 | `match_id` | int | 0.0 | ✅ | Cricsheet's own match id; joins to `<id>_info.csv` |
 | `season` | **string** | 0.0 | ✅ | `2009` or `2007/08`. Never parse the year from this — [ADR 0004](decisions/0004-season-year.md) |
 | `start_date` | date | 0.0 | ✅ | The authoritative source of the season year |
-| `venue` | string | 0.0 | ✅ | 60 distinct; names are not normalised upstream |
+| `venue` | string | 0.0 | ✅ | 60 distinct strings for **36 grounds** — not normalised upstream; `clean.canonical_venues` collapses them |
 | `innings` | int | 0.0 | ✅ | 1 or 2; **above 2 means a super over** |
 | `ball` | float | 0.0 | ✅ | over.delivery — `0.3` is the 3rd ball of the 1st over |
 | `actual_delivery` | float | 0.0 | ❌ | ⚠ undocumented; differs from `ball` on 35,647 rows |
@@ -81,6 +81,47 @@ bowler" without excluding them, plus `run out`, overstates bowling figures.
 **Not derived:** a `phase` column (powerplay / middle / death). Where the death overs begin
 is an analytical choice to argue for, not a fact to hard-code —
 [ADR 0006](decisions/0006-analysis-in-notebooks.md).
+
+## The match info frame
+
+`all_matches.csv` has no result. It never says who won. Outcomes live in 1,243
+`<match_id>_info.csv` members, in key-value long format — `info,<key>,<value>` — which
+`read_csv` turns into three unnamed columns of mixed meaning.
+`loaders.load_match_info()` pivots them into one row per match, joinable on `match_id`.
+See [ADR 0007](decisions/0007-reading-the-info-files.md).
+
+Presence measured across all 1,243 files:
+
+| Column | Type | Present | Note |
+|---|---|---:|---|
+| `match_id` | int | 100% | joins to the deliveries |
+| `season` | string | 100% | same labels as the deliveries, same slash problem |
+| `start_date` | date | 100% | written `2017/04/05` here and `2008-04-18` there — two formats, one archive |
+| `venue` | string | 100% | 60 strings, **36 grounds** — see `clean.canonical_venues` |
+| `city` | string | 100% | 38 values; empty for the UAE neutral venues |
+| `team_1`, `team_2` | string | 100% | folded from the two `team` rows; pre-rename names present |
+| `toss_winner` | string | 100% | |
+| `toss_decision` | string | 100% | `field` 825, `bat` 418 |
+| `winner` | string | **98.0%** | **null means no result** — see below |
+| `winner_runs` | Int16 | 44.9% | null when the match was won by wickets |
+| `winner_wickets` | Int16 | 53.1% | null when won by runs; 558 + 660 = the 1,218 decided |
+| `outcome` | string | 2.0% | only present when there is no winner: 16 `tie`, 9 `no result` |
+| `eliminator` | string | 1.3% | who won the super over that broke a tie |
+| `method` | string | 1.9% | `D/L` |
+| `player_of_match` | string | 99.3% | |
+
+**A null `winner` is informative**, in the sense of
+[ADR 0003](decisions/0003-informative-nulls.md), and it has two meanings that must not be
+merged. Of the 25: **9 are no-results** — abandoned, no winner exists. **16 are ties that
+were decided by a super over**, with the victor in `eliminator`. Dropping nulls silently
+discards 16 matches that did have a winner; filling them fabricates 9 that did not.
+Whether a super-over win counts as a win is an analytical choice, so the loader returns
+both columns and settles nothing.
+
+**Dropped on grain, not on interest:** `player` (22 rows per file), `registry` (~50),
+`umpire`, `reserve_umpire`, `tv_umpire`, `match_referee`, and the target/super-over rows.
+Folding `player` in alone multiplies the row count by 22 and the frame stops being one row
+per match.
 
 ## Cardinality and memory
 

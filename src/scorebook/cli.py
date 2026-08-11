@@ -52,6 +52,11 @@ def _describe(args: argparse.Namespace) -> int:
         print(f"  added     {', '.join(added) or 'nothing'}")
         print(f"  dropped   {', '.join(dropped) or 'nothing'}")
         print(f"  teams     {prepared['batting_team'].nunique()} distinct (after renames)")
+        # Both renames collapse values without changing the column count, so neither shows
+        # up in `added` or `dropped`. Printed because "what cleaning changed" is the point
+        # of this flag, and a silent 60 -> 36 is exactly the kind of change worth seeing.
+        print(f"  venues    {prepared['venue'].nunique()} distinct "
+              f"(from {frame['venue'].nunique()} written forms)")
     return 0
 
 

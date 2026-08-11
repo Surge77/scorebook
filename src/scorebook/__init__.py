@@ -11,7 +11,7 @@ on purpose: see docs/decisions/0006-analysis-in-notebooks.md.
 
 from __future__ import annotations
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 # Submodules are deliberately not imported here. `plots` calls matplotlib.use() at import
 # time, and making `import scorebook` pay for matplotlib would slow every CLI run that

@@ -24,21 +24,31 @@ unknown. Nobody has published whether a wicket in the first over actually costs 
 
 The five questions live in [docs/questions.md](docs/questions.md), committed before any
 analysis, so the findings cannot be retrofitted to whatever the charts happened to show.
+The answers are in [docs/results.md](docs/results.md), and two of the five hypotheses lost.
+
+The headline: a first-over wicket costs a first innings **12.5 runs** (95% interval −17.5
+to −7.5), which nobody had published, and which you can sanity-check against public
+scorecards yourself.
 
 ## What's in here, and what isn't
 
-**In:** acquisition, validation, cleaning, a dataset summary, chart styling, tests, docs.
-Everything that has one correct answer.
+**In the package:** acquisition, validation, cleaning, a dataset summary, chart styling,
+tests, docs. Everything that has one correct answer.
 
-**Not in:** the analysis. `docs/results.md` is a stub, and the notebook's question
-sections are empty. That is the point of the project, and
+**In the notebook:** the analysis. All five questions are answered in
+[`notebooks/01_explore.ipynb`](notebooks/01_explore.ipynb) and written up in
+[docs/results.md](docs/results.md), with the aggregation choices visible next to their
+charts rather than hidden behind a tested function.
 [ADR 0006](docs/decisions/0006-analysis-in-notebooks.md) explains the split.
 
-## The four traps this data sets
+Two of the five hypotheses turned out to be wrong. Both are reported as wrong.
+
+## The five traps this data sets
 
 Real datasets are not messy in the abstract. They are messy in specific ways, and each of
 these produces a wrong number rather than an error. Three come from the data. The fourth
-comes from the fix for the third — which is the more useful lesson.
+comes from the fix for the third — which is the more useful lesson. The fifth was found by
+walking into it.
 
 ### 1. `season` cannot be parsed from the season label
 
@@ -103,6 +113,28 @@ drift.
 **The general lesson:** an optimisation changed an answer. Worth remembering the next time a
 dtype choice looks purely mechanical.
 
+### 5. One ground, several spellings
+
+Cricsheet does not normalise venue names. The archive holds **60 venue strings for 36
+grounds**:
+
+| Written | Matches |
+|---|---:|
+| `MA Chidambaram Stadium, Chepauk` | 48 |
+| `MA Chidambaram Stadium, Chepauk, Chennai` | 41 |
+| `MA Chidambaram Stadium` | 9 |
+
+The same ground, and the split falls almost exactly at 2016 — so grouping by the raw
+string shows Chennai abandoning their own home in the middle of the league. `Eden Gardens`
+is 77 + 30. `Wankhede Stadium` is 73 + 59. Some are genuine renames: `Feroz Shah Kotla`
+became `Arun Jaitley Stadium` in 2019, and `Sardar Patel Stadium, Motera` became
+`Narendra Modi Stadium`.
+
+This one was found the hard way, while answering Q4 — the home-advantage table was built
+on venue strings first and every ground's sample was a fragment of itself. The data
+dictionary already said "names not normalised upstream". `clean.canonical_venues` collapses
+them, exactly as `canonical_teams` does for franchises.
+
 Bonus, not a trap so much as a judgement call: 19 team names cover about 14 franchises.
 `Rising Pune Supergiants` (2016) and `Rising Pune Supergiant` (2017) differ by one letter and
 are the same team. Meanwhile Deccan Chargers and Sunrisers Hyderabad look like a rebrand and
@@ -162,27 +194,33 @@ also has a cost that is not memory, which is trap 4.
 ```
 src/scorebook/
 ├── data/schemas.py    every assumption about the file's shape, in one place
-├── data/loaders.py    download, cache, and read one member out of the zip
+├── data/loaders.py    download, cache, read the deliveries and the match info
 ├── clean.py           definitional fixes only — no analytical choices
 ├── describe.py        row/match/season counts and the null profile
 ├── plots.py           figure styling and saving; no chart builders
 └── cli.py             scorebook fetch | describe
 
 docs/questions.md      the five hypotheses, written first
-docs/results.md        findings — a stub until you fill it
-docs/decisions/        six ADRs, each with its cost
-notebooks/             where the analysis goes
+docs/results.md        the five answers, and what didn't work
+docs/decisions/        seven ADRs, each with its cost
+notebooks/             the analysis
+reports/               generated charts — regenerated, never committed
 scripts/make_sample.py regenerates the committed sample
 ```
 
 ## Testing
 
 ```bash
-pytest                          # 64 tests, offline, ~5 seconds
+pytest                          # 102 tests, offline, ~6 seconds
 pytest --cov                    # 99%, gate is 90
-pytest -m integration           # downloads and parses the real archive
+pytest -m integration           # 9 tests against the real archive
 ruff check . && pyright         # lint and types
 ```
+
+The integration tests do two jobs: prove the real 27-column file parses, and pin every
+number quoted in `docs/results.md`. If Cricsheet publishes another season, those assertions
+fail — which is the point, because the document is then out of date and nothing else would
+say so.
 
 Unit tests never touch the network, and that is **enforced**, not merely intended: a
 conftest fixture fails any unmarked test that opens an HTTP connection. It exists because
@@ -194,13 +232,18 @@ against a fixture in `tmp_path`.
 
 ## Known limits
 
-- **The `_info.csv` files are unused.** The archive holds 1,243 metadata files with toss,
-  winner, and player-of-match. They are key-value long format, not tabular — `read_csv`
-  returns nonsense without a pivot. Question 4 needs them, so question 4 may be deferred.
+- **Nothing here is causal.** Q3 measures an association between a first-over wicket and a
+  lower total; the pitch that produced the wicket goes on suppressing runs all innings, and
+  this data cannot separate the two. Q4 measures teams at grounds, not grounds — Deccan
+  Chargers and Sunrisers Hyderabad share a home and sit at opposite ends of the table.
 - **No model.** Pure EDA. A model would be v1.1, and nothing here would need restructuring
   to add one.
 - **Seasons are not directly comparable.** CSK and RR were suspended in 2016–17; 2009 was
   played in South Africa and 2020 in the UAE. Any cross-season claim needs to say so.
+- **The info files are read, but not fully.** `load_match_info` returns one row per match
+  and drops the `player` and `registry` rows, which are ~70 per file and would multiply the
+  grain. A squad or player-identity frame is a separate loader nobody has needed yet.
+  ([ADR 0007](docs/decisions/0007-reading-the-info-files.md))
 - **`actual_delivery` is unused** rather than understood. Worth resolving upstream.
 
 ## Documentation
@@ -208,11 +251,11 @@ against a fixture in `tmp_path`.
 | File | What it covers |
 |---|---|
 | [docs/questions.md](docs/questions.md) | the five hypotheses, committed before analysis |
-| [docs/data-dictionary.md](docs/data-dictionary.md) | all 27 columns, measured null rates |
+| [docs/data-dictionary.md](docs/data-dictionary.md) | all 27 columns, the match info columns, measured null rates |
 | [docs/glossary.md](docs/glossary.md) | cricket terms, and the real names of these charts |
 | [docs/architecture.md](docs/architecture.md) | how the pieces fit and why the split exists |
-| [docs/results.md](docs/results.md) | findings |
-| [docs/decisions/](docs/decisions/) | six ADRs |
+| [docs/results.md](docs/results.md) | the five answers, their caveats, and what didn't work |
+| [docs/decisions/](docs/decisions/) | seven ADRs |
 
 ## Licence
 

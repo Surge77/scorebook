@@ -14,6 +14,7 @@ cricsheet.org ──► loaders.download_archive() ──► ~/.cache/scorebook/
                               clean.prepare()
                                         │  drop_always_empty
                                         │  canonical_teams
+                                        │  canonical_venues
                                         │  add_season_year
                                         │  add_over
                                         │  fill_extras
@@ -25,6 +26,25 @@ cricsheet.org ──► loaders.download_archive() ──► ~/.cache/scorebook/
         describe.summarise()                    notebooks/01_explore.ipynb
         (counts, null profile)                  (the analysis — not in the package)
 ```
+
+The same archive holds a second frame at a different grain, read separately:
+
+```
+        ipl_csv2.zip
+              │  1,243 × <match_id>_info.csv   (key-value long format)
+              ▼
+        loaders.load_match_info()
+              │  pivot to one row per match
+              ▼
+        match info DataFrame  (1,243 × 16)
+              │  join on match_id
+              ▼
+        who won, where, and who won the toss
+```
+
+It is a separate call rather than part of `load_deliveries` because it opens 1,243 zip
+members and four of the five questions never need it
+([ADR 0007](decisions/0007-reading-the-info-files.md)).
 
 ## Why the package stops where it does
 
