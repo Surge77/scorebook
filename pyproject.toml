@@ -1,0 +1,141 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scorebook"
+version = "0.1.0"
+description = "Every ball of the IPL, 2008 to 2026 — a loader, a cleaner, and five questions asked before the charts."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "TEJAS", email = "tejasdeshmane66@gmail.com" }]
+keywords = ["pandas", "data-analysis", "cricket", "ipl", "exploratory-data-analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+# Pinned exactly. A portfolio repo that cannot be reproduced two years from
+# now is not evidence of anything.
+#
+# The download uses stdlib urllib, not requests: one HTTPS GET does not
+# justify a dependency.
+dependencies = [
+    "pandas==2.2.3",
+    "matplotlib==3.10.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.2",
+    "pyright==1.1.411",
+    # Not optional. Without these stubs pyright reports phantom `ndarray`
+    # errors on ordinary DataFrame indexing.
+    "pandas-stubs==3.0.5.260730",
+    "hypothesis==6.165.2",
+]
+notebook = [
+    "jupyterlab==4.2.5",
+    "seaborn==0.13.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/Surge77/scorebook"
+Repository = "https://github.com/Surge77/scorebook"
+Issues = "https://github.com/Surge77/scorebook/issues"
+
+[project.scripts]
+scorebook = "scorebook.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ships the py.typed marker so installers get the type information pyright
+# already enforces here.
+[tool.setuptools.package-data]
+scorebook = ["py.typed"]
+
+[tool.pytest.ini_options]
+# No pythonpath hack: the package is installed with `pip install -e .`, so
+# tests import it exactly the way a user would.
+testpaths = ["tests"]
+# The integration test downloads the real 6.8 MB archive, so it is opt-in:
+# `pytest` stays fast and works offline, `pytest -m integration` runs the
+# real thing.
+addopts = "-q -m 'not integration'"
+markers = [
+    "integration: downloads and parses the real Cricsheet archive (needs network)",
+]
+# Warnings are failures. A DeprecationWarning from pandas is how a silent
+# behaviour change announces itself a release before it breaks something.
+#
+# Exceptions get listed individually and named to a module, never blanket
+# disabled: an ignore that is too broad silences the next real warning too.
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["scorebook"]
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+    # A three-line shim delegating to cli.main(). Covering it would mean
+    # spawning a subprocess to prove `from .cli import main` works; the CI
+    # smoke job already runs `python -m scorebook` for real.
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Deliberately a readable subset rather than everything ruff offers. This is
+# a teaching repo: a linter that fires on style opinions teaches nothing and
+# discourages contributors.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes — real bugs: unused names, undefined vars
+    "I",    # isort — import ordering
+    "N",    # pep8-naming
+    "UP",   # pyupgrade — modern syntax
+    "B",    # flake8-bugbear — likely bugs, e.g. mutable default args
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+# E402: notebooks legitimately run IPython magics (%matplotlib) before their imports.
+# F401: 01_explore.ipynb is a scaffold — it imports `plots` for the reader to use in the
+# question cells, which are deliberately empty. Once those are filled the import is used,
+# but lint should not force the reader to add it themselves.
+"*.ipynb" = ["E402", "F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["scorebook"]
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+pythonVersion = "3.11"
+# "basic" not "strict". Strict demands an explicit annotation on every local,
+# which buries the pipeline logic this repo exists to show.
+typeCheckingMode = "basic"
+reportMissingImports = true

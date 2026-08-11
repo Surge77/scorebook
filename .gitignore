@@ -1,0 +1,30 @@
+# Downloaded data is not committed. The archive is 6.8 MB and carries
+# Cricsheet's own terms — see docs/decisions/0001-data-is-downloaded.md.
+# Only the small generated sample is tracked, so a fresh clone works offline.
+data/*
+!data/.gitkeep
+!data/sample_deliveries.csv
+
+# Secrets. This project needs none, but an unrelated .env in the working tree
+# must not be committable by accident.
+.env
+.env.*
+
+# Generated output
+reports/*.png
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+.hypothesis/
+build/
+dist/
+*.egg-info/

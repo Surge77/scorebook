@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Cancel an in-flight run when the same branch is pushed again — no point
+# burning minutes on a commit that has already been superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Lint only, deliberately not `ruff format`. The formatter de-indents the
+      # command samples inside module docstrings, which removes the visual cue
+      # that they are code. Readability wins in a repo whose point is being read.
+      - name: Lint
+        run: ruff check .
+
+      # Gate at 90, currently sitting at 99. The headroom is deliberate: a gate
+      # pinned to the exact current number turns every later commit into a
+      # coverage-chasing exercise and invites tests written to move the number
+      # rather than to catch anything.
+      #
+      # This run is fully offline — a conftest fixture fails any unmarked test
+      # that opens an HTTP connection.
+      - name: Tests
+        run: pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+
+      - name: Types
+        run: pyright
+
+  integration:
+    name: real archive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # Cache the download so a Cricsheet outage does not turn every build red,
+      # and so repeated runs do not re-fetch 6.8 MB for no reason. Keyed on the
+      # loader, because that is what determines how the archive is read.
+      - name: Cache the archive
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/scorebook
+          key: cricsheet-ipl-${{ hashFiles('src/scorebook/data/loaders.py') }}
+          restore-keys: cricsheet-ipl-
+
+      # Parses all 295,732 real rows and asserts the measured counts. No
+      # credentials: Cricsheet is a public download, so there is nothing to
+      # expire or rotate.
+      - name: Parse the real archive
+        run: pytest -m integration -q
+
+  smoke:
+    name: end-to-end run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # The committed sample must work with no network at all — this is the
+      # first thing a fresh clone does, and the thing most likely to rot.
+      - name: Describe the committed sample offline
+        run: |
+          python -m scorebook describe --sample data/sample_deliveries.csv --clean | tee out.txt
+          grep -q "rows      458" out.txt
+          grep -q "season_year" out.txt
+          echo "offline path works"
+
+      - name: Cache the archive
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/scorebook
+          key: cricsheet-ipl-${{ hashFiles('src/scorebook/data/loaders.py') }}
+          restore-keys: cricsheet-ipl-
+
+      - name: Fetch and describe the full archive
+        run: |
+          scorebook fetch
+          scorebook describe | tee full.txt
+          grep -q "rows      295,732" full.txt
+          grep -q "matches   1,243" full.txt
+          echo "full archive matches the counts measured on 2026-08-11"
+
+      # Regenerate the sample and report whether it drifted, without failing.
+      # A new IPL season legitimately changes the "most recent match" the sample
+      # is built from, so drift here means "regenerate the sample", not "the code
+      # is broken" — and a red build every May would train people to ignore it.
+      - name: Check the sample is still current
+        run: |
+          python scripts/make_sample.py
+          if git diff --quiet data/sample_deliveries.csv; then
+            echo "sample is current"
+          else
+            echo "::warning::data/sample_deliveries.csv is stale — run scripts/make_sample.py and commit"
+            git diff --stat data/sample_deliveries.csv
+          fi

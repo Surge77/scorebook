@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: scorebook
+message: If you refer to this project, please cite it as below.
+type: software
+authors:
+  - given-names: TEJAS
+    alias: Surge77
+repository-code: "https://github.com/Surge77/scorebook"
+abstract: >-
+  A loader and cleaning layer for Cricsheet's IPL ball-by-ball archive —
+  295,732 deliveries across 1,243 matches and 19 seasons — that documents the
+  traps the data sets: a season label no string rule can parse correctly, an
+  undocumented delivery column disagreeing with the documented one on 12% of
+  rows, and three kinds of null needing three different treatments.
+keywords:
+  - exploratory-data-analysis
+  - cricket
+  - ipl
+  - pandas
+  - data-cleaning
+license: MIT
+version: 0.1.0
+date-released: "2026-08-11"
+references:
+  - type: data
+    title: Cricsheet — Indian Premier League ball-by-ball data
+    authors:
+      - family-names: Rushe
+        given-names: Stephen
+    url: "https://cricsheet.org/matches/"
+    notes: >-
+      The data this project analyses. Not redistributed here; it carries its own
+      terms and is downloaded on demand.
