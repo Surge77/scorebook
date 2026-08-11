@@ -26,7 +26,7 @@ classifiers = [
 # The download uses stdlib urllib, not requests: one HTTPS GET does not
 # justify a dependency.
 dependencies = [
-    "pandas==2.2.3",
+    "pandas==3.0.5",
     "matplotlib==3.10.8",
 ]
 
