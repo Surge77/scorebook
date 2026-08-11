@@ -42,6 +42,10 @@ DEFUNCT_TEAMS: frozenset[str] = frozenset({
 
 TEAM_COLUMNS: tuple[str, ...] = ("batting_team", "bowling_team")
 
+# The same franchises appear under different column names in the match info frame, where
+# a team can be a participant, the toss winner, or the match winner.
+INFO_TEAM_COLUMNS: tuple[str, ...] = ("team_1", "team_2", "toss_winner", "winner")
+
 # Sanity bounds for a derived season year. The IPL began in 2008; the upper bound only
 # needs to catch a parsing accident, not predict the end of the league.
 _MIN_SEASON_YEAR = 2008
@@ -52,10 +56,18 @@ class CleaningError(ValueError):
     """An assumption this module relies on no longer holds in the data."""
 
 
-def canonical_teams(frame: pd.DataFrame) -> pd.DataFrame:
-    """Collapse renamed franchises onto their current name, in both team columns."""
+def canonical_teams(
+    frame: pd.DataFrame, columns: tuple[str, ...] = TEAM_COLUMNS
+) -> pd.DataFrame:
+    """Collapse renamed franchises onto their current name, in the given team columns.
+
+    Defaults to the two columns of the deliveries frame. The match info frame names the
+    same franchises differently, so pass `INFO_TEAM_COLUMNS` for that one — a match won
+    by "Delhi Daredevils" and one won by "Delhi Capitals" are the same franchise, and
+    counting them apart is how a home-advantage table ends up with two half-teams.
+    """
     out = frame.copy()
-    for column in TEAM_COLUMNS:
+    for column in columns:
         if column not in out.columns:
             continue
         series = out[column]
