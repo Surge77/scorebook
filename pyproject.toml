@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scorebook"
-version = "0.1.1"
-description = "Every ball of the IPL, 2008 to 2026 — a loader, a cleaner, and five questions asked before the charts."
+version = "0.2.0"
+description = "Every ball of the IPL, 2008 to 2026 — a loader, a cleaner, and five questions asked before the charts, then answered."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

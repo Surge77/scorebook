@@ -5,6 +5,77 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-08-11
+
+The analysis. All five questions answered, with the numbers in
+[docs/results.md](docs/results.md) and the working in
+[notebooks/01_explore.ipynb](notebooks/01_explore.ipynb). Two of the five hypotheses were
+wrong and are reported as wrong.
+
+### Added
+
+- **`loaders.load_match_info()`** — reads the 1,243 `<match_id>_info.csv` members, which
+  nothing touched before. `all_matches.csv` has no result in it, so Q4 had been scoped
+  without checking whether the loaded data could answer it. It could not. The files are
+  key-value long format; the loader pivots them to one row per match, joinable on
+  `match_id`. Two things the format hides: dates are written `2017/04/05` here and
+  `2008-04-18` in the deliveries, and `winner` is null on 25 matches which decompose as 16
+  ties decided by super over plus 9 genuine no-results. ([ADR 0007](docs/decisions/0007-reading-the-info-files.md))
+- **`clean.canonical_venues()`** — 60 venue strings describe 36 grounds. `MA Chidambaram
+  Stadium, Chepauk` (48 matches) and `MA Chidambaram Stadium, Chepauk, Chennai` (41) split
+  almost exactly at 2016, so the first home-advantage table showed Chennai abandoning their
+  own ground mid-league. Also merges genuine renames: Feroz Shah Kotla → Arun Jaitley,
+  Sardar Patel Motera → Narendra Modi, Subrata Roy Sahara → Maharashtra CA. Now README
+  trap 5, and part of `prepare()`.
+- **`tests/test_results.py`** — 8 integration tests pinning every figure quoted in
+  `results.md`. When Cricsheet publishes the next season they fail, which is the point:
+  nothing else would notice the document had gone stale.
+
+### Changed
+
+- `clean.canonical_teams` takes a `columns` argument, defaulting to the deliveries frame's
+  two team columns. The info frame names franchises in four (`team_1`, `team_2`,
+  `toss_winner`, `winner`) and would otherwise count Delhi Daredevils and Delhi Capitals as
+  two teams.
+- `docs/results.md` is no longer a stub. `docs/questions.md` is untouched, deliberately —
+  it is the pre-registration, and editing it after the fact would destroy the only thing
+  making the findings credible.
+
+### Findings
+
+- **Q1** — death overs average 9.78 runs/over against 7.94 in the middle, +1.84. But the
+  powerplay ramps faster per over (+0.47) than the death does (+0.40), so half the
+  hypothesis is wrong.
+- **Q2** — scoring rose 8.24 → 9.80 runs/over, +18.9%, almost all of it after 2021.
+- **Q3** — a first-over wicket costs a first innings 12.5 runs, interval −17.5 to −7.5.
+- **Q4** — largest home advantage is the Rajiv Gandhi International Stadium, +19.5 points.
+  League-wide home advantage has fallen from +8.5 points before 2016 to +2.6 after.
+- **Q5** — **falsified.** Wides are rising, 4.42 → 5.20 per 100 balls. No-balls fell.
+
+### Fixed
+
+- **The Q1 denominator, which inverted the answer.** Dividing runs in an over by every
+  innings makes the last over read 8.12 and *falling*; it is 10.59 and rising. 578 innings
+  (23.3%) never reach it. The wrong series is kept on the chart rather than deleted.
+- **This repo's own written advice on Q3.** The notebook said to filter to innings of at
+  least 19 overs. For a first innings that removes the collapses that are the effect —
+  short first innings are 23.3% first-over-wicket against a 16.0% base rate. The estimate
+  survived it, so nothing changed; the advice was still wrong.
+- **A missing `date` in an info file produced a silent `NaT`.** `match_id` was required and
+  `start_date` was not, so an upstream format change would have yielded a row that drops
+  out of every date filter and season grouping without raising. Both are now required.
+- **The CI archive cache was keyed on `hashFiles('loaders.py')`.** What is cached is the
+  downloaded zip, which does not change when the code that reads it does — so every PR
+  touching the loader evicted a good 6.8 MB archive and forced a fresh fetch. Worse, the
+  `real archive` and `end-to-end run` jobs share that key and run in parallel, so both
+  missed together and hit Cricsheet within seconds of each other. Cricsheet throttles that,
+  answering with a ~12 KB error page under HTTP 200, and the build went red twice in one
+  afternoon. Now keyed on the ISO week.
+- **`download_archive` gave up on the first refusal.** It now retries three times with a
+  linear backoff and sends a descriptive `User-Agent` instead of `Python-urllib/3.11`. The
+  size guard from ADR 0001 is what made the throttling page loud rather than a corrupt
+  parse; this is what makes it survivable.
+
 ## [0.1.1] - 2026-08-11
 
 A verification pass over 0.1.0. Everything below was found by running the code and
@@ -78,5 +149,6 @@ analysis. **No findings yet** — `docs/results.md` is deliberately a stub.
 - **The 1,243 `_info.csv` files are unused.** They hold toss and match winner in key-value
   long format. Question 4 needs them, so question 4 may be deferred.
 
+[0.2.0]: https://github.com/Surge77/scorebook/releases/tag/v0.2.0
 [0.1.1]: https://github.com/Surge77/scorebook/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Surge77/scorebook/releases/tag/v0.1.0

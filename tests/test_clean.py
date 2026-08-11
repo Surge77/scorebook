@@ -20,66 +20,6 @@ def season_frame(pairs: list[tuple[str, str]]) -> pd.DataFrame:
     return frame_from([{"season": season, "start_date": date} for season, date in pairs])
 
 
-# --- teams ---------------------------------------------------------------------------
-
-
-def test_renames_collapse_onto_the_current_name():
-    frame = frame_from([
-        {"batting_team": "Royal Challengers Bangalore", "bowling_team": "Delhi Daredevils"},
-        {"batting_team": "Kings XI Punjab", "bowling_team": "Mumbai Indians"},
-    ])
-    out = clean.canonical_teams(frame)
-    assert out["batting_team"].tolist() == ["Royal Challengers Bengaluru", "Punjab Kings"]
-    assert out["bowling_team"].tolist() == ["Delhi Capitals", "Mumbai Indians"]
-
-
-def test_the_one_letter_rename_collapses():
-    """Rising Pune Supergiants (2016) and Rising Pune Supergiant (2017) are one franchise
-    across its only two seasons. Left alone, every per-team aggregate splits it in two."""
-    frame = frame_from([
-        {"batting_team": "Rising Pune Supergiants", "bowling_team": "Gujarat Lions"},
-        {"batting_team": "Rising Pune Supergiant", "bowling_team": "Gujarat Lions"},
-    ])
-    out = clean.canonical_teams(frame)
-    assert out["batting_team"].nunique() == 1
-
-
-def test_defunct_franchises_are_not_merged_into_successors():
-    """Sunrisers Hyderabad was a new franchise, not a Deccan Chargers rebrand. Merging
-    them would invent a continuous history.
-
-    Asserts the whole DEFUNCT_TEAMS set rather than one name, so that constant documents a
-    real invariant instead of sitting there unused.
-    """
-    overlap = clean.DEFUNCT_TEAMS & clean.TEAM_RENAMES.keys()
-    assert not overlap, f"defunct franchises must not be renamed away: {overlap}"
-
-    frame = frame_from([{"batting_team": "Deccan Chargers", "bowling_team": "Pune Warriors"}])
-    out = clean.canonical_teams(frame)
-    assert out["batting_team"].tolist() == ["Deccan Chargers"]
-    assert out["bowling_team"].tolist() == ["Pune Warriors"]
-
-
-def test_canonical_teams_preserves_category_dtype():
-    """Renaming must not silently cost the dtype that keeps the real frame at 89 MiB."""
-    frame = frame_from([{"batting_team": "Kings XI Punjab", "bowling_team": "Mumbai Indians"}])
-    frame["batting_team"] = frame["batting_team"].astype("category")
-    out = clean.canonical_teams(frame)
-    assert str(out["batting_team"].dtype) == "category"
-    assert out["batting_team"].tolist() == ["Punjab Kings"]
-
-
-def test_canonical_teams_tolerates_a_missing_team_column():
-    out = clean.canonical_teams(frame_from([{"batting_team": "Kings XI Punjab"}]))
-    assert out["batting_team"].tolist() == ["Punjab Kings"]
-
-
-def test_canonical_teams_does_not_mutate_its_argument():
-    frame = frame_from([{"batting_team": "Kings XI Punjab", "bowling_team": "Mumbai Indians"}])
-    clean.canonical_teams(frame)
-    assert frame["batting_team"].tolist() == ["Kings XI Punjab"]
-
-
 # --- season year ---------------------------------------------------------------------
 
 

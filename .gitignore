@@ -13,6 +13,9 @@ data/*
 # Generated output
 reports/*.png
 
+# Crash dumps from the Git Bash / msys shell on Windows. Not ours, never wanted.
+*.stackdump
+
 # Python
 __pycache__/
 *.py[cod]

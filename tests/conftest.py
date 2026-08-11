@@ -57,11 +57,62 @@ ROWS: tuple[dict[str, object], ...] = (
 )
 
 
+# The metadata for the same two matches, in the key-value long format the real
+# `<id>_info.csv` members use. Match 1 has an ordinary winner; match 2 is a tie decided by
+# a super over, carries a reserve-day second `date` row, and names both teams by their
+# pre-rename names — the three cases the parser has to get right.
+INFO_ROWS: dict[int, tuple[tuple[str, ...], ...]] = {
+    1: (
+        ("team", "Mumbai Indians"),
+        ("team", "Kings XI Punjab"),
+        ("season", "2026"),
+        ("date", "2026/03/28"),
+        ("match_id", "1"),
+        ("venue", "Wankhede Stadium"),
+        ("city", "Mumbai"),
+        ("toss_winner", "Kings XI Punjab"),
+        ("toss_decision", "field"),
+        ("winner", "Mumbai Indians"),
+        ("winner_runs", "12"),
+        ("player_of_match", "RG Sharma"),
+        # Three-field rows the pivot must ignore rather than read as values.
+        ("player", "Mumbai Indians", "RG Sharma"),
+        ("registry", "people", "RG Sharma", "a1b2c3d4"),
+        ("umpire", "A N Umpire"),
+    ),
+    2: (
+        ("team", "Royal Challengers Bangalore"),
+        ("team", "Delhi Daredevils"),
+        ("season", "2007/08"),
+        ("date", "2008/04/18"),
+        ("date", "2008/04/19"),  # reserve day; the first row is the start
+        ("match_id", "2"),
+        ("venue", "Eden Gardens"),
+        ("city", "Kolkata"),
+        ("toss_winner", "Delhi Daredevils"),
+        ("toss_decision", "bat"),
+        ("outcome", "tie"),
+        ("eliminator", "Royal Challengers Bangalore"),
+        ("player", "Delhi Daredevils", "G Gambhir"),
+    ),
+}
+
+
 def _csv_bytes(columns: tuple[str, ...] = schemas.USED_COLUMNS) -> bytes:
     buffer = io.StringIO(newline="")
     writer = csv.DictWriter(buffer, fieldnames=list(columns), extrasaction="ignore")
     writer.writeheader()
     writer.writerows(ROWS)
+    return buffer.getvalue().encode("utf-8")
+
+
+def _info_bytes(rows: tuple[tuple[str, ...], ...]) -> bytes:
+    """Render one match's metadata the way Cricsheet writes it."""
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    writer.writerow(("version", "2.3.0"))
+    for row in rows:
+        writer.writerow(("info", *row))
     return buffer.getvalue().encode("utf-8")
 
 
@@ -112,12 +163,24 @@ def _build_archive(
     *,
     member: str = loaders.DELIVERIES_MEMBER,
     columns: tuple[str, ...] = schemas.USED_COLUMNS,
+    info: dict[str, bytes] | None = None,
 ) -> Path:
-    """Write a zip where the loader expects to find its cached archive."""
+    """Write a zip where the loader expects to find its cached archive.
+
+    Carries the `<id>_info.csv` members too, as the real archive does. Pass `info={}` for
+    an archive without them, or an explicit mapping to plant a malformed one.
+    """
+    if info is None:
+        info = {
+            f"{match_id}{schemas.INFO_MEMBER_SUFFIX}": _info_bytes(rows)
+            for match_id, rows in INFO_ROWS.items()
+        }
     path = loaders.archive_path(cache_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as bundle:
         bundle.writestr(member, _csv_bytes(columns))
+        for name, payload in info.items():
+            bundle.writestr(name, payload)
     return path
 
 

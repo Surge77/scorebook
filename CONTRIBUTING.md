@@ -66,12 +66,19 @@ transitive dependency is a break waiting to happen.
   `ball` on 35,647 rows. [ADR 0002](docs/decisions/0002-ball-not-actual-delivery.md) explains
   what was chosen and admits it is unverified. A definitive answer, ideally from Cricsheet,
   would close a real gap.
-- **A reader for the `_info.csv` files.** 1,243 files in key-value long format, holding toss
-  and match winner. Needed for question 4.
 - **Corrections to `clean.TEAM_RENAMES`.** It claims Deccan Chargers and Sunrisers Hyderabad
   are separate franchises, and that Rising Pune Supergiant(s) is one. If either is wrong,
   say so — with a source.
-- **Answers to the questions** in `docs/questions.md`, written up per the rules in
+- **Corrections to `clean.VENUE_RENAMES`.** It collapses 60 venue strings onto 36 grounds,
+  including a few genuine renames. If two grounds have been merged that should not be, or
+  two spellings missed, say so.
+- **A squad frame from the `_info.csv` files.** `load_match_info` drops the `player` and
+  `registry` rows because they would multiply the grain by ~70. A separate loader at player
+  grain would open up questions this dataset cannot currently answer.
+- **Better answers to the questions** in `docs/questions.md`. All five are answered in
+  `docs/results.md`, none causally. Q3 in particular measures an association between a
+  first-over wicket and a lower total and cannot separate the wicket from the pitch that
+  produced it. A design that can would be a real contribution — written up per the rules in
   `docs/results.md`: one number, one caveat, and how it could be wrong.
 
 ## Commits

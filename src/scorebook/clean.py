@@ -42,6 +42,64 @@ DEFUNCT_TEAMS: frozenset[str] = frozenset({
 
 TEAM_COLUMNS: tuple[str, ...] = ("batting_team", "bowling_team")
 
+# The same franchises appear under different column names in the match info frame, where
+# a team can be a participant, the toss winner, or the match winner.
+INFO_TEAM_COLUMNS: tuple[str, ...] = ("team_1", "team_2", "toss_winner", "winner")
+
+# Grounds written more than one way. Cricsheet does not normalise venue names, so the
+# archive holds 60 venue strings for 36 grounds: a city suffix appears and disappears
+# ("Eden Gardens" / "Eden Gardens, Kolkata"), punctuation varies ("M.Chinnaswamy"), and
+# some grounds were genuinely renamed mid-league. Mapped to the current name, exactly as
+# TEAM_RENAMES is, because the alternative is one ground counted as three.
+#
+# Chepauk is the worst case: 48 matches under one spelling and 41 under another, split
+# almost exactly at 2016. Group by the raw string and Chennai appear to have abandoned
+# their own ground halfway through the league.
+VENUE_RENAMES: dict[str, str] = {
+    # City suffix present in some seasons and absent in others.
+    "Eden Gardens, Kolkata": "Eden Gardens",
+    "Wankhede Stadium, Mumbai": "Wankhede Stadium",
+    "Brabourne Stadium, Mumbai": "Brabourne Stadium",
+    "Dr DY Patil Sports Academy, Mumbai": "Dr DY Patil Sports Academy",
+    "Sawai Mansingh Stadium, Jaipur": "Sawai Mansingh Stadium",
+    "M Chinnaswamy Stadium, Bengaluru": "M Chinnaswamy Stadium",
+    "Himachal Pradesh Cricket Association Stadium, Dharamsala":
+        "Himachal Pradesh Cricket Association Stadium",
+    "Shaheed Veer Narayan Singh International Stadium, Raipur":
+        "Shaheed Veer Narayan Singh International Stadium",
+    "Dr. Y.S. Rajasekhara Reddy ACA-VDCA Cricket Stadium, Visakhapatnam":
+        "Dr. Y.S. Rajasekhara Reddy ACA-VDCA Cricket Stadium",
+    "MA Chidambaram Stadium, Chepauk": "MA Chidambaram Stadium",
+    "MA Chidambaram Stadium, Chepauk, Chennai": "MA Chidambaram Stadium",
+    "Rajiv Gandhi International Stadium, Uppal": "Rajiv Gandhi International Stadium",
+    "Rajiv Gandhi International Stadium, Uppal, Hyderabad":
+        "Rajiv Gandhi International Stadium",
+    "Maharashtra Cricket Association Stadium, Pune": "Maharashtra Cricket Association Stadium",
+    "Maharaja Yadavindra Singh International Cricket Stadium, Mullanpur":
+        "Maharaja Yadavindra Singh International Cricket Stadium",
+    "Maharaja Yadavindra Singh International Cricket Stadium, New Chandigarh":
+        "Maharaja Yadavindra Singh International Cricket Stadium",
+    # Punctuation only.
+    "M.Chinnaswamy Stadium": "M Chinnaswamy Stadium",
+    # Genuine renames. Mapped forward to the current name.
+    "Feroz Shah Kotla": "Arun Jaitley Stadium",
+    "Arun Jaitley Stadium, Delhi": "Arun Jaitley Stadium",
+    "Punjab Cricket Association Stadium, Mohali":
+        "Punjab Cricket Association IS Bindra Stadium",
+    "Punjab Cricket Association IS Bindra Stadium, Mohali":
+        "Punjab Cricket Association IS Bindra Stadium",
+    "Punjab Cricket Association IS Bindra Stadium, Mohali, Chandigarh":
+        "Punjab Cricket Association IS Bindra Stadium",
+    "Sardar Patel Stadium, Motera": "Narendra Modi Stadium",
+    "Narendra Modi Stadium, Ahmedabad": "Narendra Modi Stadium",
+    "Sheikh Zayed Stadium": "Zayed Cricket Stadium",
+    "Zayed Cricket Stadium, Abu Dhabi": "Zayed Cricket Stadium",
+    # Gahunje, renamed when the naming sponsor left. Same ground, both spellings.
+    "Subrata Roy Sahara Stadium": "Maharashtra Cricket Association Stadium",
+}
+
+VENUE_COLUMN = "venue"
+
 # Sanity bounds for a derived season year. The IPL began in 2008; the upper bound only
 # needs to catch a parsing accident, not predict the end of the league.
 _MIN_SEASON_YEAR = 2008
@@ -52,10 +110,18 @@ class CleaningError(ValueError):
     """An assumption this module relies on no longer holds in the data."""
 
 
-def canonical_teams(frame: pd.DataFrame) -> pd.DataFrame:
-    """Collapse renamed franchises onto their current name, in both team columns."""
+def canonical_teams(
+    frame: pd.DataFrame, columns: tuple[str, ...] = TEAM_COLUMNS
+) -> pd.DataFrame:
+    """Collapse renamed franchises onto their current name, in the given team columns.
+
+    Defaults to the two columns of the deliveries frame. The match info frame names the
+    same franchises differently, so pass `INFO_TEAM_COLUMNS` for that one — a match won
+    by "Delhi Daredevils" and one won by "Delhi Capitals" are the same franchise, and
+    counting them apart is how a home-advantage table ends up with two half-teams.
+    """
     out = frame.copy()
-    for column in TEAM_COLUMNS:
+    for column in columns:
         if column not in out.columns:
             continue
         series = out[column]
@@ -65,6 +131,24 @@ def canonical_teams(frame: pd.DataFrame) -> pd.DataFrame:
             out[column] = series.astype("string").replace(TEAM_RENAMES).astype("category")
         else:
             out[column] = series.replace(TEAM_RENAMES)
+    return out
+
+
+def canonical_venues(frame: pd.DataFrame, column: str = VENUE_COLUMN) -> pd.DataFrame:
+    """Collapse the spellings of one ground onto its current name.
+
+    The same fix as `canonical_teams`, for the same reason: 60 venue strings describe 36
+    grounds, and grouping by the raw string reports one ground as several — each with a
+    fraction of its matches, and each looking like a small sample.
+    """
+    out = frame.copy()
+    if column not in out.columns:
+        return out
+    series = out[column]
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        out[column] = series.astype("string").replace(VENUE_RENAMES).astype("category")
+    else:
+        out[column] = series.replace(VENUE_RENAMES)
     return out
 
 
@@ -195,6 +279,7 @@ def prepare(frame: pd.DataFrame) -> pd.DataFrame:
     return (
         frame.pipe(drop_always_empty)
         .pipe(canonical_teams)
+        .pipe(canonical_venues)
         .pipe(add_season_year)
         .pipe(add_over)
         .pipe(fill_extras)
