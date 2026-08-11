@@ -125,6 +125,109 @@ DATE_FORMAT = "%Y-%m-%d"
 BALLS_PER_OVER = 6
 
 
+# --- the per-match metadata files -------------------------------------------------
+#
+# The archive also ships 1,243 `<match_id>_info.csv` members. They are not tabular: each
+# line is `info,<key>,<value>[,<extra>]`, so read_csv returns three unnamed columns of
+# mixed meaning rather than a match. loaders.load_match_info pivots them.
+#
+#     version,2.3.0
+#     info,team,Sunrisers Hyderabad
+#     info,team,Royal Challengers Bangalore
+#     info,venue,"Rajiv Gandhi International Stadium, Uppal"
+#     info,winner,Sunrisers Hyderabad
+#     info,player,Sunrisers Hyderabad,DA Warner
+#
+# See docs/decisions/0007-reading-the-info-files.md.
+INFO_MEMBER_SUFFIX = "_info.csv"
+
+# Keys taken as a single value per match. Measured presence across all 1,243 files:
+# venue, city, toss_winner, toss_decision 100%; player_of_match 99.3%; winner 98.0%;
+# winner_wickets 53.1%; winner_runs 44.9%; outcome 2.0%; method 1.9%; eliminator 1.3%.
+INFO_SCALAR_KEYS: tuple[str, ...] = (
+    "match_id",
+    "season",
+    "venue",
+    "city",
+    "toss_winner",
+    "toss_decision",
+    "winner",
+    "winner_runs",
+    "winner_wickets",
+    "outcome",
+    "eliminator",
+    "method",
+    "player_of_match",
+)
+
+# Keys that repeat within one file. `team` appears exactly twice and is folded into
+# team_1/team_2; `date` appears twice on the two matches that ran into a reserve day, and
+# the first is the start. The rest are dropped: `player` alone is 22 rows per match and
+# would multiply the grain by 22 for information no question here asks for.
+INFO_TEAM_KEY = "team"
+INFO_DATE_KEY = "date"
+INFO_IGNORED_KEYS: frozenset[str] = frozenset({
+    "player",
+    "registry",
+    "umpire",
+    "reserve_umpire",
+    "tv_umpire",
+    "match_referee",
+    "balls_per_over",
+    "team_type",
+    "gender",
+    "event",
+    "match_type",
+    "match_number",
+    "overs",
+    "target_overs",
+    "target_runs",
+    "super_over",
+})
+
+# One row per match, in this order.
+INFO_COLUMNS: tuple[str, ...] = (
+    "match_id",
+    "season",
+    "start_date",
+    "venue",
+    "city",
+    "team_1",
+    "team_2",
+    "toss_winner",
+    "toss_decision",
+    "winner",
+    "winner_runs",
+    "winner_wickets",
+    "outcome",
+    "eliminator",
+    "method",
+    "player_of_match",
+)
+
+# Text columns worth a category dtype in the info frame. `winner` is included even though
+# it is nullable — a nullable category is fine, and "no winner" is exactly the kind of
+# informative null docs/decisions/0003-informative-nulls.md is about.
+INFO_CATEGORICAL: frozenset[str] = frozenset({
+    "season",
+    "venue",
+    "city",
+    "team_1",
+    "team_2",
+    "toss_winner",
+    "toss_decision",
+    "winner",
+    "outcome",
+    "eliminator",
+    "method",
+})
+
+# The info files write dates with slashes, `2017/04/05`, where all_matches.csv writes
+# `2008-04-18`. Two files in one archive, two formats, and nothing upstream says so —
+# parsing an info date with DATE_FORMAT raises on every row.
+INFO_DATE_FORMAT = "%Y/%m/%d"
+
+
 class SchemaError(ValueError):
     """The archive does not have the columns this package was written against.
 

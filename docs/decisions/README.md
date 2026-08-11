@@ -14,3 +14,4 @@ no downside listed is usually one that was not thought about hard enough.
 | [0004](0004-season-year.md) | Derive the season year from `start_date`, never from the season label |
 | [0005](0005-team-names.md) | Canonicalise renamed franchises; leave defunct ones alone |
 | [0006](0006-analysis-in-notebooks.md) | Keep the analysis out of the package |
+| [0007](0007-reading-the-info-files.md) | Read the info files into a second frame |

@@ -6,6 +6,8 @@ outside the repository so it is downloaded once per machine and never committed.
 
 from __future__ import annotations
 
+import csv
+import io
 import shutil
 import urllib.request
 import zipfile
@@ -18,8 +20,8 @@ from . import schemas
 ARCHIVE_URL = "https://cricsheet.org/downloads/ipl_csv2.zip"
 
 # The aggregated ball-by-ball file. The archive also holds 1,243 per-match pairs
-# (<id>.csv and <id>_info.csv); the _info files are key-value long format, not tabular,
-# and are out of scope for now — see README "Known limits".
+# (<id>.csv and <id>_info.csv). The _info files are key-value long format rather than
+# tabular and are read separately by load_match_info().
 DELIVERIES_MEMBER = "all_matches.csv"
 
 # Cache lives beside the other tool caches, not in the project. Overridable so tests
@@ -133,6 +135,23 @@ def _parse_dates(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def _ensure_archive(cache_dir: Path | None, *, download: bool) -> Path:
+    """Return the cached archive path, downloading it if allowed.
+
+    Shared by both loaders so the two cannot drift into giving different advice about
+    the same missing file.
+    """
+    target = archive_path(cache_dir)
+    if target.exists():
+        return target
+    if not download:
+        raise DownloadError(
+            f"no cached archive at {target} and download=False. "
+            "Run `scorebook fetch` first."
+        )
+    return download_archive(cache_dir)
+
+
 def load_deliveries(
     cache_dir: Path | None = None,
     *,
@@ -144,15 +163,7 @@ def load_deliveries(
     Pass `download=False` to fail loudly instead of reaching the network — what the
     offline unit tests do.
     """
-    target = archive_path(cache_dir)
-    if not target.exists():
-        if not download:
-            raise DownloadError(
-                f"no cached archive at {target} and download=False. "
-                "Run `scorebook fetch` first."
-            )
-        target = download_archive(cache_dir)
-    return _read_member(target, columns)
+    return _read_member(_ensure_archive(cache_dir, download=download), columns)
 
 
 def load_sample(path: Path) -> pd.DataFrame:
@@ -161,3 +172,92 @@ def load_sample(path: Path) -> pd.DataFrame:
     frame = pd.read_csv(path, dtype=dtypes)
     schemas.validate_columns(list(frame.columns))
     return _parse_dates(frame)
+
+
+def _parse_info_member(raw: bytes, member: str) -> dict[str, str | None]:
+    """Pivot one `<id>_info.csv` from key-value rows into a single record.
+
+    Repeated keys take their first value, which is what `setdefault` buys: two matches
+    carry a second `date` row for a reserve day, and the start date is the one that
+    belongs beside the deliveries.
+    """
+    record: dict[str, str | None] = {}
+    teams: list[str] = []
+    for row in csv.reader(io.StringIO(raw.decode("utf-8"))):
+        # `version,2.3.0` has no key column, and a `player` row has a third field that
+        # would be read as a value if the key were not checked first.
+        if len(row) < 3 or row[0] != "info":
+            continue
+        key, value = row[1], row[2]
+        if key == schemas.INFO_TEAM_KEY:
+            teams.append(value)
+        elif key == schemas.INFO_DATE_KEY:
+            record.setdefault("start_date", value)
+        elif key in schemas.INFO_SCALAR_KEYS:
+            record.setdefault(key, value)
+
+    if "match_id" not in record:
+        raise schemas.SchemaError(
+            f"{member} has no `info,match_id` row, so it cannot be joined to the "
+            "deliveries. The upstream info format may have changed; update "
+            "src/scorebook/data/schemas.py."
+        )
+    # Padded rather than indexed: an abandoned fixture with one named team should come
+    # back with a null opponent, not an IndexError.
+    padded = [*teams, None, None]
+    record["team_1"], record["team_2"] = padded[0], padded[1]
+    return record
+
+
+def load_match_info(cache_dir: Path | None = None, *, download: bool = True) -> pd.DataFrame:
+    """Load one row per match from the 1,243 `<id>_info.csv` members.
+
+    Returns `schemas.INFO_COLUMNS`, joinable to the deliveries on `match_id`. This is the
+    only source of match *outcomes* — who won, who won the toss, which city it was played
+    in — none of which appear in the ball-by-ball file.
+
+    `winner` is null on 25 matches: 16 ties and 9 no-results. The ties were decided by a
+    super over and their winner is in `eliminator`, so whether a super-over win counts as
+    a win is left to the caller rather than settled here.
+
+    Team names come through exactly as written, which means the pre-rename ones are still
+    present. Pass the team columns through `clean.canonical_teams` before grouping:
+
+        info = clean.canonical_teams(
+            loaders.load_match_info(),
+            columns=("team_1", "team_2", "toss_winner", "winner"),
+        )
+
+    See docs/decisions/0007-reading-the-info-files.md.
+    """
+    archive = _ensure_archive(cache_dir, download=download)
+    records: list[dict[str, str | None]] = []
+    with zipfile.ZipFile(archive) as bundle:
+        # Sorted so the frame's row order is stable between runs; namelist() order is
+        # whatever the zip happens to store.
+        members = sorted(
+            name for name in bundle.namelist()
+            if name.endswith(schemas.INFO_MEMBER_SUFFIX)
+        )
+        if not members:
+            raise schemas.SchemaError(
+                f"{archive} contains no *{schemas.INFO_MEMBER_SUFFIX} members. "
+                "Cricsheet may have changed the archive layout."
+            )
+        for member in members:
+            # ZipFile.open() on an exact name, never extractall(). See SECURITY.md.
+            with bundle.open(member) as handle:
+                records.append(_parse_info_member(handle.read(), member))
+
+    frame = pd.DataFrame.from_records(records, columns=list(schemas.INFO_COLUMNS))
+    frame["match_id"] = frame["match_id"].astype("int64")
+    for column in ("winner_runs", "winner_wickets"):
+        # Nullable Int16, not int: these two are mutually exclusive by construction, so
+        # whichever did not decide the match is genuinely absent rather than zero.
+        frame[column] = pd.to_numeric(frame[column]).astype("Int16")
+    for column in schemas.INFO_CATEGORICAL:
+        frame[column] = frame[column].astype("category")
+    frame[schemas.DATE_COLUMN] = pd.to_datetime(
+        frame[schemas.DATE_COLUMN], format=schemas.INFO_DATE_FORMAT
+    )
+    return frame
