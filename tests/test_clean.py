@@ -122,6 +122,15 @@ def test_canonical_venues_preserves_category_dtype():
     assert str(out["venue"].dtype) == "category"
 
 
+def test_canonical_venues_handles_a_plain_object_column():
+    """The info frame arrives categorical, but a frame built by hand does not."""
+    frame = pd.DataFrame({"venue": ["Feroz Shah Kotla", "Eden Gardens, Kolkata"]})
+    assert clean.canonical_venues(frame)["venue"].tolist() == [
+        "Arun Jaitley Stadium",
+        "Eden Gardens",
+    ]
+
+
 def test_canonical_venues_tolerates_a_missing_venue_column():
     frame = frame_from([{"batting_team": "Mumbai Indians"}])
     assert list(clean.canonical_venues(frame).columns) == ["batting_team"]
