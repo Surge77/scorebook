@@ -46,11 +46,18 @@ def test_the_one_letter_rename_collapses():
 
 def test_defunct_franchises_are_not_merged_into_successors():
     """Sunrisers Hyderabad was a new franchise, not a Deccan Chargers rebrand. Merging
-    them would invent a continuous history."""
-    assert "Deccan Chargers" not in clean.TEAM_RENAMES
+    them would invent a continuous history.
+
+    Asserts the whole DEFUNCT_TEAMS set rather than one name, so that constant documents a
+    real invariant instead of sitting there unused.
+    """
+    overlap = clean.DEFUNCT_TEAMS & clean.TEAM_RENAMES.keys()
+    assert not overlap, f"defunct franchises must not be renamed away: {overlap}"
+
     frame = frame_from([{"batting_team": "Deccan Chargers", "bowling_team": "Pune Warriors"}])
     out = clean.canonical_teams(frame)
     assert out["batting_team"].tolist() == ["Deccan Chargers"]
+    assert out["bowling_team"].tolist() == ["Pune Warriors"]
 
 
 def test_canonical_teams_preserves_category_dtype():
@@ -182,6 +189,71 @@ def test_wicket_type_nulls_survive_cleaning():
     out = clean.prepare(frame)
     assert out["wicket_type"].isna().sum() == 1
     assert out["wicket_type"].dropna().tolist() == ["caught"]
+
+
+# --- the categorical groupby trap ----------------------------------------------------
+
+
+def category_frame() -> pd.DataFrame:
+    frame = frame_from([
+        {"batting_team": "Mumbai Indians", "season_year": 2026, "runs_off_bat": 4},
+        {"batting_team": "Mumbai Indians", "season_year": 2026, "runs_off_bat": 2},
+        {"batting_team": "Deccan Chargers", "season_year": 2012, "runs_off_bat": 6},
+    ])
+    frame["batting_team"] = frame["batting_team"].astype("category")
+    return frame
+
+
+def test_filtering_a_category_leaves_phantom_groups():
+    """Pins the trap `drop_unused_categories` exists for, so it cannot change unnoticed.
+
+    A category column keeps its full value list after a filter, and groupby defaults to
+    observed=False — so a team that did not play still appears, scoring 0.
+    """
+    recent = category_frame()
+    recent = recent[recent["season_year"] == 2026]
+    assert recent["batting_team"].nunique() == 1, "only one team actually played"
+
+    grouped = recent.groupby("batting_team", observed=False)["runs_off_bat"].sum()
+    assert len(grouped) == 2, "the defunct team is still a category, so it still gets a row"
+    assert grouped["Deccan Chargers"] == 0, "reported as zero runs rather than omitted"
+
+
+def test_drop_unused_categories_removes_the_phantom_groups():
+    recent = category_frame()
+    recent = clean.drop_unused_categories(recent[recent["season_year"] == 2026])
+
+    grouped = recent.groupby("batting_team", observed=False)["runs_off_bat"].sum()
+    assert list(grouped.index) == ["Mumbai Indians"]
+    assert grouped["Mumbai Indians"] == 6
+
+
+def test_observed_true_also_fixes_the_row_count():
+    """The more direct habit, documented alongside the helper."""
+    recent = category_frame()
+    recent = recent[recent["season_year"] == 2026]
+    grouped = recent.groupby("batting_team", observed=True)["runs_off_bat"].sum()
+    assert list(grouped.index) == ["Mumbai Indians"]
+
+
+def test_drop_unused_categories_preserves_dtype_and_values():
+    """It must not quietly cost the 4.6x memory saving the category dtype buys."""
+    out = clean.drop_unused_categories(category_frame())
+    assert str(out["batting_team"].dtype) == "category"
+    assert out["batting_team"].tolist() == ["Mumbai Indians", "Mumbai Indians", "Deccan Chargers"]
+
+
+def test_drop_unused_categories_leaves_non_categorical_columns_alone():
+    out = clean.drop_unused_categories(category_frame())
+    assert out["runs_off_bat"].tolist() == [4, 2, 6]
+    assert out["season_year"].tolist() == [2026, 2026, 2012]
+
+
+def test_drop_unused_categories_does_not_mutate_its_argument():
+    frame = category_frame()
+    subset = frame[frame["season_year"] == 2026]
+    clean.drop_unused_categories(subset)
+    assert len(subset["batting_team"].cat.categories) == 2, "argument left untouched"
 
 
 def test_always_empty_columns_are_dropped():

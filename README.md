@@ -34,10 +34,11 @@ Everything that has one correct answer.
 sections are empty. That is the point of the project, and
 [ADR 0006](docs/decisions/0006-analysis-in-notebooks.md) explains the split.
 
-## The three traps this data sets
+## The four traps this data sets
 
-Real datasets are not messy in the abstract. They are messy in specific ways, and these
-three would each silently produce a wrong number rather than an error.
+Real datasets are not messy in the abstract. They are messy in specific ways, and each of
+these produces a wrong number rather than an error. Three come from the data. The fourth
+comes from the fix for the third — which is the more useful lesson.
 
 ### 1. `season` cannot be parsed from the season label
 
@@ -79,10 +80,33 @@ value and a null would drop the row out of any sum. `wicket_type` is **left null
 "no wicket" is not a dismissal type and a `"none"` category would dominate every
 `value_counts`. ([ADR 0003](docs/decisions/0003-informative-nulls.md))
 
-Bonus: 19 team names cover about 14 franchises. `Rising Pune Supergiants` (2016) and
-`Rising Pune Supergiant` (2017) differ by one letter and are the same team. Meanwhile
-Deccan Chargers and Sunrisers Hyderabad look like a rebrand and are **not** one.
-([ADR 0005](docs/decisions/0005-team-names.md))
+### 4. The `category` dtype invents rows in a groupby
+
+This one is self-inflicted, which is why it is worth reading. Loading the text columns as
+`category` cuts memory 7.4× — and a category column keeps its full value list regardless of
+which rows are present, while `groupby` defaults to `observed=False`:
+
+```python
+recent = deliveries[deliveries.season_year == 2026]
+recent["batting_team"].nunique()                             # 10 teams played
+len(recent.groupby("batting_team", observed=False).size())    # 15 rows
+```
+
+Five phantom rows: Deccan Chargers, Gujarat Lions, Kochi Tuskers Kerala, Pune Warriors and
+Rising Pune Supergiant, each credited with **0 runs** in a season none of them existed in.
+pandas warns about the changing default; nothing warns that the answer grew five wrong rows.
+
+Fix with `observed=True`, or `clean.drop_unused_categories(frame)` after filtering. pandas
+3.0 makes it the default. `tests/test_clean.py` pins the behaviour both ways so it cannot
+drift.
+
+**The general lesson:** an optimisation changed an answer. Worth remembering the next time a
+dtype choice looks purely mechanical.
+
+Bonus, not a trap so much as a judgement call: 19 team names cover about 14 franchises.
+`Rising Pune Supergiants` (2016) and `Rising Pune Supergiant` (2017) differ by one letter and
+are the same team. Meanwhile Deccan Chargers and Sunrisers Hyderabad look like a rebrand and
+are **not** one. ([ADR 0005](docs/decisions/0005-team-names.md))
 
 ## Quickstart
 
@@ -125,12 +149,13 @@ match ever played and the most recent one in the archive. Between them they carr
 season formats and both generations of team names — a random sample would contain neither.
 Regenerate with `python scripts/make_sample.py`.
 
-Memory, measured rather than estimated: a naive read of all 27 columns costs **244 MiB**.
-Category dtypes on the text columns take that to **107 MiB** (2.3×); loading only the 16
-columns in `USED_COLUMNS` takes it to **38 MiB** (a further 2.8×, 6.4× in total).
+Memory, measured across all four combinations: all 27 columns as `object` is **227 MiB**;
+the 16 in `USED_COLUMNS` as `object` is **159 MiB**; all 27 as `category` is **90 MiB**; the
+16 as `category` is **21 MiB** — which is what `load_deliveries()` gives you.
 
-Both levers are worth roughly the same, which is the useful lesson — dtype tuning gets the
-attention, but not reading columns you do not need is just as effective and simpler.
+So `usecols` alone buys 1.4× and the `category` dtype alone buys 2.5×, for 10.6× together.
+The dtype is the bigger lever, not the column count — the opposite of the usual advice. It
+also has a cost that is not memory, which is trap 4.
 
 ## Layout
 

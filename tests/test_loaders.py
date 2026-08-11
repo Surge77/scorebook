@@ -26,6 +26,25 @@ def test_low_cardinality_columns_load_as_category(archive: Path, cache_dir: Path
         assert str(frame[column].dtype) == "category", column
 
 
+def test_start_date_is_parsed_to_datetime(archive: Path, cache_dir: Path):
+    """Left as text, `start_date` compares lexically — which works for ISO-8601 and quietly
+    stops working for anything else, so a string filter passes for a date filter."""
+    assert archive.exists()
+    frame = loaders.load_deliveries(cache_dir, download=False)
+    assert frame["start_date"].dtype.kind == "M"
+    # A real date comparison, not a string one.
+    assert len(frame[frame["start_date"] >= "2026-01-01"]) == 3
+
+
+def test_sample_and_archive_agree_on_the_date_dtype(sample_csv: Path, archive: Path,
+                                                    cache_dir: Path):
+    """The offline and online paths must produce interchangeable frames."""
+    assert archive.exists()
+    from_sample = loaders.load_sample(sample_csv)
+    from_archive = loaders.load_deliveries(cache_dir, download=False)
+    assert from_sample["start_date"].dtype == from_archive["start_date"].dtype
+
+
 def test_refuses_to_download_when_told_not_to(cache_dir: Path):
     with pytest.raises(loaders.DownloadError, match="scorebook fetch"):
         loaders.load_deliveries(cache_dir, download=False)
