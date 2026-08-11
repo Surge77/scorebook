@@ -61,6 +61,20 @@ wrong and are reported as wrong.
   least 19 overs. For a first innings that removes the collapses that are the effect —
   short first innings are 23.3% first-over-wicket against a 16.0% base rate. The estimate
   survived it, so nothing changed; the advice was still wrong.
+- **A missing `date` in an info file produced a silent `NaT`.** `match_id` was required and
+  `start_date` was not, so an upstream format change would have yielded a row that drops
+  out of every date filter and season grouping without raising. Both are now required.
+- **The CI archive cache was keyed on `hashFiles('loaders.py')`.** What is cached is the
+  downloaded zip, which does not change when the code that reads it does — so every PR
+  touching the loader evicted a good 6.8 MB archive and forced a fresh fetch. Worse, the
+  `real archive` and `end-to-end run` jobs share that key and run in parallel, so both
+  missed together and hit Cricsheet within seconds of each other. Cricsheet throttles that,
+  answering with a ~12 KB error page under HTTP 200, and the build went red twice in one
+  afternoon. Now keyed on the ISO week.
+- **`download_archive` gave up on the first refusal.** It now retries three times with a
+  linear backoff and sends a descriptive `User-Agent` instead of `Python-urllib/3.11`. The
+  size guard from ADR 0001 is what made the throttling page loud rather than a corrupt
+  parse; this is what makes it survivable.
 
 ## [0.1.1] - 2026-08-11
 

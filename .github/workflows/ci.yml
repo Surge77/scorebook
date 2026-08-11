@@ -68,14 +68,26 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
 
-      # Cache the download so a Cricsheet outage does not turn every build red,
-      # and so repeated runs do not re-fetch 6.8 MB for no reason. Keyed on the
-      # loader, because that is what determines how the archive is read.
+      - name: Stamp the week
+        id: stamp
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      # Keyed on the week, not on the source.
+      #
+      # This used to hash src/scorebook/data/loaders.py, which is a category error: what
+      # is cached is the downloaded zip, and the zip does not change when the code that
+      # reads it does. Every PR touching the loader evicted a perfectly good archive and
+      # forced a fresh 6.8 MB fetch — and because this job and `smoke` share the key and
+      # run in parallel, both missed at once and hit Cricsheet within seconds of each
+      # other. Cricsheet throttles that, and the build went red. Twice in one afternoon.
+      #
+      # A weekly key still picks up a new season within a week, and restore-keys means a
+      # stale archive is preferred to no archive.
       - name: Cache the archive
         uses: actions/cache@v4
         with:
           path: ~/.cache/scorebook
-          key: cricsheet-ipl-${{ hashFiles('src/scorebook/data/loaders.py') }}
+          key: cricsheet-ipl-${{ steps.stamp.outputs.week }}
           restore-keys: cricsheet-ipl-
 
       # Parses all 295,732 real rows and asserts the measured counts. No
@@ -115,11 +127,18 @@ jobs:
           grep -q "season_year" out.txt
           echo "offline path works"
 
+      - name: Stamp the week
+        id: stamp
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      # Same key as the `real archive` job, on purpose: whichever job downloads first
+      # populates the cache for the other. See that job for why it is dated rather than
+      # hashed.
       - name: Cache the archive
         uses: actions/cache@v4
         with:
           path: ~/.cache/scorebook
-          key: cricsheet-ipl-${{ hashFiles('src/scorebook/data/loaders.py') }}
+          key: cricsheet-ipl-${{ steps.stamp.outputs.week }}
           restore-keys: cricsheet-ipl-
 
       # Lower bounds, not equality. Cricsheet adds a season every May, so the row

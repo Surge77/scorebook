@@ -92,7 +92,7 @@ def test_download_rejects_a_short_response_and_leaves_no_file(cache_dir: Path, t
     decoy.write_text("<html>404</html>", encoding="utf-8")
 
     with pytest.raises(loaders.DownloadError, match="outside the expected"):
-        loaders.download_archive(cache_dir, url=decoy.as_uri())
+        loaders.download_archive(cache_dir, url=decoy.as_uri(), attempts=1)
     assert not loaders.archive_path(cache_dir).exists()
     assert not list(cache_dir.glob("*.part")), "the partial download should be cleaned up"
 
@@ -102,7 +102,7 @@ def test_download_rejects_a_non_zip_of_plausible_size(cache_dir: Path, tmp_path:
     decoy.write_bytes(b"\x00" * (loaders.MIN_ARCHIVE_BYTES + 10))
 
     with pytest.raises(loaders.DownloadError, match="did not return a zip"):
-        loaders.download_archive(cache_dir, url=decoy.as_uri())
+        loaders.download_archive(cache_dir, url=decoy.as_uri(), attempts=1)
     assert not loaders.archive_path(cache_dir).exists()
 
 
@@ -113,7 +113,76 @@ def test_download_error_is_raised_for_an_unreachable_url(cache_dir: Path, tmp_pa
     guard stays strict — both take the same OSError path inside download_archive.
     """
     with pytest.raises(loaders.DownloadError, match="could not download"):
-        loaders.download_archive(cache_dir, url=(tmp_path / "missing.zip").as_uri())
+        loaders.download_archive(cache_dir, url=(tmp_path / "missing.zip").as_uri(), attempts=1)
+
+
+def _good_archive(tmp_path: Path) -> Path:
+    source = tmp_path / "source.zip"
+    with zipfile.ZipFile(source, "w") as bundle:
+        bundle.writestr("all_matches.csv", "x" * (loaders.MIN_ARCHIVE_BYTES + 1))
+    return source
+
+
+def test_download_retries_a_throttled_response(
+    cache_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Cricsheet answers a rate-limited request with a ~12 KB error page and HTTP 200.
+    CI hit it twice in one afternoon; both times a rerun a minute later worked. The size
+    guard already made it loud, and this makes it survivable."""
+    source = _good_archive(tmp_path)
+    monkeypatch.setattr(loaders, "RETRY_BACKOFF_SECONDS", 0)
+
+    calls: list[str] = []
+    real_download = loaders._download_once
+
+    def throttled_once(url: str, partial: Path) -> None:
+        calls.append(url)
+        if len(calls) == 1:
+            raise loaders.DownloadError("simulated 12 KB throttling page")
+        real_download(source.as_uri(), partial)
+
+    monkeypatch.setattr(loaders, "_download_once", throttled_once)
+
+    path = loaders.download_archive(cache_dir, url="https://cricsheet.invalid/ipl.zip")
+    assert path.exists()
+    assert zipfile.is_zipfile(path)
+    assert len(calls) == 2, "the first attempt was refused, the second succeeded"
+
+
+def test_download_gives_up_and_reports_the_last_failure(
+    cache_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """After the last attempt the useful message is what actually arrived, not a count of
+    how many times it was asked for."""
+    monkeypatch.setattr(loaders, "RETRY_BACKOFF_SECONDS", 0)
+    calls: list[str] = []
+
+    def always_throttled(url: str, partial: Path) -> None:
+        calls.append(url)
+        raise loaders.DownloadError("outside the expected range")
+
+    monkeypatch.setattr(loaders, "_download_once", always_throttled)
+
+    with pytest.raises(loaders.DownloadError, match="outside the expected range"):
+        loaders.download_archive(cache_dir, url="https://cricsheet.invalid/ipl.zip", attempts=3)
+    assert len(calls) == 3
+    assert not loaders.archive_path(cache_dir).exists()
+
+
+def test_download_sends_a_descriptive_user_agent(cache_dir: Path, tmp_path: Path,
+                                                 monkeypatch: pytest.MonkeyPatch):
+    """`Python-urllib/3.11` is exactly the User-Agent a rate limiter looks for."""
+    source = _good_archive(tmp_path)
+    seen: list[str] = []
+    real_urlopen = loaders.urllib.request.urlopen
+
+    def capture(request, *args, **kwargs):
+        seen.append(request.get_header("User-agent"))
+        return real_urlopen(request, *args, **kwargs)
+
+    monkeypatch.setattr(loaders.urllib.request, "urlopen", capture)
+    loaders.download_archive(cache_dir, url=source.as_uri())
+    assert seen and seen[0].startswith("scorebook/")
 
 
 def test_load_sample_validates_columns(sample_csv: Path):

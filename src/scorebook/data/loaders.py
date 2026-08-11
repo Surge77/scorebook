@@ -9,12 +9,14 @@ from __future__ import annotations
 import csv
 import io
 import shutil
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
 
 import pandas as pd
 
+from .. import __version__
 from . import schemas
 
 ARCHIVE_URL = "https://cricsheet.org/downloads/ipl_csv2.zip"
@@ -36,6 +38,18 @@ MAX_ARCHIVE_BYTES = 200_000_000
 
 DOWNLOAD_TIMEOUT_SECONDS = 30
 
+# Cricsheet serves an error page — around 12 KB, with HTTP 200 — when it throttles, and it
+# does throttle: two CI runs on one afternoon got one instead of the archive. The size
+# guard below catches it, so the failure is loud rather than a corrupt parse, but a single
+# attempt turns a transient refusal into a red build and a wasted rerun.
+DOWNLOAD_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 3.0
+
+# urllib's default User-Agent is `Python-urllib/3.11`, which is exactly what a rate limiter
+# is looking for. Saying who this is and where it came from is both politer and less likely
+# to be challenged.
+USER_AGENT = f"scorebook/{__version__} (+https://github.com/Surge77/scorebook)"
+
 
 class DownloadError(RuntimeError):
     """The archive could not be fetched, or what arrived was not a usable zip."""
@@ -45,28 +59,16 @@ def archive_path(cache_dir: Path | None = None) -> Path:
     return (cache_dir or DEFAULT_CACHE_DIR) / "ipl_csv2.zip"
 
 
-def download_archive(
-    cache_dir: Path | None = None,
-    *,
-    force: bool = False,
-    url: str = ARCHIVE_URL,
-) -> Path:
-    """Download the archive to the cache and return its path. A no-op when cached.
+def _download_once(url: str, partial: Path) -> None:
+    """Fetch `url` into `partial`, or raise DownloadError and leave no file behind.
 
-    Raises DownloadError rather than letting a urllib exception escape, so the CLI can
-    print something a human can act on.
+    Every failure path unlinks the partial, so a rejected attempt cannot leave a
+    truncated file that the next call mistakes for a cached archive.
     """
-    target = archive_path(cache_dir)
-    if target.exists() and not force:
-        return target
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    # Download to a sibling temp file and move into place only on success, so an
-    # interrupted download cannot leave a truncated archive that looks cached.
-    partial = target.with_suffix(".zip.part")
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with (
-            urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response,
+            urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response,
             partial.open("wb") as handle,
         ):
             shutil.copyfileobj(response, handle)
@@ -85,6 +87,41 @@ def download_archive(
     if not zipfile.is_zipfile(partial):
         partial.unlink(missing_ok=True)
         raise DownloadError(f"{url} did not return a zip archive.")
+
+
+def download_archive(
+    cache_dir: Path | None = None,
+    *,
+    force: bool = False,
+    url: str = ARCHIVE_URL,
+    attempts: int = DOWNLOAD_ATTEMPTS,
+) -> Path:
+    """Download the archive to the cache and return its path. A no-op when cached.
+
+    Retries a rejected response with a linear backoff, because the rejection this most
+    often sees is a throttling page rather than a broken URL. The last failure is raised
+    as-is: after three refusals the useful message is what actually arrived, not "retried
+    three times". Pass `attempts=1` to fail on the first.
+
+    Raises DownloadError rather than letting a urllib exception escape, so the CLI can
+    print something a human can act on.
+    """
+    target = archive_path(cache_dir)
+    if target.exists() and not force:
+        return target
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Download to a sibling temp file and move into place only on success, so an
+    # interrupted download cannot leave a truncated archive that looks cached.
+    partial = target.with_suffix(".zip.part")
+    for attempt in range(1, attempts + 1):
+        try:
+            _download_once(url, partial)
+            break
+        except DownloadError:
+            if attempt == attempts:
+                raise
+            time.sleep(RETRY_BACKOFF_SECONDS * attempt)
 
     partial.replace(target)
     return target

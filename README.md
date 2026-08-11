@@ -211,9 +211,9 @@ scripts/make_sample.py regenerates the committed sample
 ## Testing
 
 ```bash
-pytest                          # 102 tests, offline, ~6 seconds
+pytest                          # 106 tests, offline, ~6 seconds
 pytest --cov                    # 99%, gate is 90
-pytest -m integration           # 9 tests against the real archive
+pytest -m integration           # 10 tests against the real archive
 ruff check . && pyright         # lint and types
 ```
 
