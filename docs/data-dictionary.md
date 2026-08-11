@@ -84,21 +84,79 @@ is an analytical choice to argue for, not a fact to hard-code —
 
 ## Cardinality and memory
 
-| Load strategy | Memory | Saving |
-|---|---:|---|
-| All 27 columns, default dtypes | 244 MiB | — |
-| All 27, category dtypes on text | 107 MiB | 2.3× |
-| The 16 in `USED_COLUMNS`, category dtypes | **38 MiB** | 2.8× more, 6.4× total |
+Two independent levers, measured across all four combinations:
 
-19 teams, 60 venues, 10 dismissal types across 295,732 rows — which is why the text columns
-load as `category`. The two levers turn out to be worth about the same, which is the useful
-part: dtype tuning gets the attention, but simply not reading 11 unused columns is just as
-effective.
+| Columns | Text dtype | Memory |
+|---|---|---:|
+| all 27 | default (`object`) | 227 MiB |
+| 16 (`USED_COLUMNS`) | default (`object`) | 159 MiB |
+| all 27 | `category` | 90 MiB |
+| 16 (`USED_COLUMNS`) | `category` | **21 MiB** |
 
-One trap: reading all 27 columns in chunks makes pandas infer dtypes per chunk, and the
-all-null columns (`non_boundary`, `fielder_3`) come out as mixed types with a
+So `usecols` alone is worth 1.4×, `category` alone 2.5×, and both together 10.6×. **The
+dtype is the bigger lever**, by a clear margin — and on the 16 columns actually loaded it is
+worth 7.4× on its own (159 → 21 MiB). `clean.prepare()` brings the frame to 19 MiB, because
+filling the extras columns replaces float64 nulls with int16.
+
+`start_date` is parsed to `datetime64` by the loader, which is itself worth ~17 MiB: 295,732
+date strings become 295,732 int64s. It is done for correctness rather than memory — see
+below — but the saving is real.
+
+Where the saving comes from, per column:
+
+| Column | Cardinality | `category` | `object` |
+|---|---:|---:|---:|
+| `venue` | 60 | 0.29 MiB | 24.3 MiB |
+| `bowling_team` | 19 | 0.28 MiB | 21.1 MiB |
+| `batting_team` | 19 | 0.28 MiB | 21.1 MiB |
+| `bowler` | 578 | 0.62 MiB | 18.9 MiB |
+| `striker` | 739 | 0.63 MiB | 18.8 MiB |
+| `season` | 19 | 0.28 MiB | 17.3 MiB |
+
+Note that cardinality barely matters at this row count — 739 distinct bowlers compress about
+as well as 19 venues, because the win comes from storing 295,732 integer codes instead of
+295,732 separate Python strings.
+
+**The category dtype has a cost, and it is not memory.** See the groupby trap below.
+
+One parsing trap: reading all 27 columns in chunks makes pandas infer dtypes per chunk, and
+the all-null columns (`non_boundary`, `fielder_3`) come out as mixed types with a
 `DtypeWarning`. Under this project's `filterwarnings = ["error"]` that is a test failure, so
 the loader passes `low_memory=False` to parse in a single pass.
+
+## The groupby trap that `category` buys you
+
+A category column carries its full value list independently of the rows present, and
+`DataFrame.groupby` on a categorical defaults to `observed=False` — one output row per
+*category*, not per value actually present.
+
+Measured on the real data:
+
+```python
+recent = deliveries[deliveries.season_year == 2026]
+recent["batting_team"].nunique()                                  # 10 teams played
+len(recent.groupby("batting_team", observed=False).size())         # 15 rows
+```
+
+The five extra rows are Deccan Chargers, Gujarat Lions, Kochi Tuskers Kerala, Pune Warriors,
+and Rising Pune Supergiant — franchises that did not exist in 2026, each reported with **0
+runs**. No error. pandas 2.2 emits a `FutureWarning` about the default, but nothing warns
+that the answer gained five wrong rows.
+
+Two fixes, both worth the habit:
+
+```python
+recent.groupby("batting_team", observed=True)      # the direct fix
+clean.drop_unused_categories(recent)               # for frames handed to other code
+```
+
+pandas 3.0 makes `observed=True` the default and this disappears. Until then it is the price
+of a 7.4× memory saving, and `tests/test_clean.py` pins the behaviour so it cannot change
+unnoticed.
+
+Note `filterwarnings = ["error"]` means a **test** that groups a categorical without
+`observed=` fails outright on the `FutureWarning`. That is deliberate: better a red test than
+a silently wrong table.
 
 ## Grain
 

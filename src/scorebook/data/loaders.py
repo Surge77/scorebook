@@ -112,7 +112,25 @@ def _read_member(archive: Path, columns: tuple[str, ...]) -> pd.DataFrame:
             # infers dtypes per chunk, and the all-null columns (non_boundary, fielder_3)
             # come out as mixed types with a DtypeWarning — which, under this project's
             # filterwarnings=["error"], is a test failure for anyone loading ALL_COLUMNS.
-            return pd.read_csv(handle, usecols=list(columns), dtype=dtypes, low_memory=False)
+            frame = pd.read_csv(
+                handle, usecols=list(columns), dtype=dtypes, low_memory=False
+            )
+        return _parse_dates(frame)
+
+
+def _parse_dates(frame: pd.DataFrame) -> pd.DataFrame:
+    """Give `start_date` a real datetime dtype.
+
+    Left as text it compares lexically, which happens to work for ISO-8601 and silently
+    stops working for anything else — `frame[frame.start_date > "2020-01-01"]` looks like a
+    date filter and is a string filter. Parsing once here also means `add_season_year` and
+    `describe.summarise` read the same values rather than each parsing independently.
+    """
+    if schemas.DATE_COLUMN in frame.columns:
+        frame[schemas.DATE_COLUMN] = pd.to_datetime(
+            frame[schemas.DATE_COLUMN], format=schemas.DATE_FORMAT
+        )
+    return frame
 
 
 def load_deliveries(
@@ -142,4 +160,4 @@ def load_sample(path: Path) -> pd.DataFrame:
     dtypes = {name: "category" for name in schemas.USED_COLUMNS if name in schemas.CATEGORICAL}
     frame = pd.read_csv(path, dtype=dtypes)
     schemas.validate_columns(list(frame.columns))
-    return frame
+    return _parse_dates(frame)

@@ -45,9 +45,9 @@ ALL_COLUMNS: tuple[str, ...] = (
     "fielder_3",            # undocumented upstream
 )
 
-# Columns loaded by default. Measured: all 27 with category dtypes is 107 MiB, these 16
-# are 38 MiB, and a naive all-object read of all 27 is 244 MiB. So the two levers are
-# worth 2.3x (dtypes) and 2.8x (usecols) respectively, 6.4x together.
+# Columns loaded by default. Measured: all 27 as object is 227 MiB, these 16 as object is
+# 159 MiB, all 27 as category is 90 MiB, and these 16 as category is 21 MiB. So usecols is
+# worth 1.4x on its own, the category dtype 2.5x, and the two together 10.6x.
 # Anything genuinely needed later can be passed explicitly to load_deliveries().
 USED_COLUMNS: tuple[str, ...] = (
     "match_id",
@@ -69,7 +69,9 @@ USED_COLUMNS: tuple[str, ...] = (
 )
 
 # Low-cardinality text: 19 team names, 60 venues, 10 dismissal types across 295k rows.
-# `season` is included because it is a *string* upstream (see clean.season_to_year).
+# `season` is included because it is a *string* upstream — and stays one, because no rule
+# over that string yields the right year (see clean.add_season_year, which reads
+# start_date instead).
 CATEGORICAL: frozenset[str] = frozenset({
     "season",
     "venue",
@@ -111,6 +113,12 @@ INFORMATIVE_NULLS: frozenset[str] = frozenset({
 
 # Extras columns filled with 0 rather than left null. Subset of INFORMATIVE_NULLS.
 EXTRAS_COLUMNS: tuple[str, ...] = ("wides", "noballs", "byes", "legbyes")
+
+# `start_date` is written as an ISO-8601 calendar date. Passing the format explicitly to
+# to_datetime skips pandas' per-value format inference and, more importantly, makes a
+# future upstream format change fail loudly instead of being silently re-inferred.
+DATE_COLUMN = "start_date"
+DATE_FORMAT = "%Y-%m-%d"
 
 # Deliveries per over in a completed over. Used to sanity-check derived over numbers;
 # an over can contain more rows than this because wides and no-balls are re-bowled.

@@ -149,6 +149,33 @@ def fill_extras(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def drop_unused_categories(frame: pd.DataFrame) -> pd.DataFrame:
+    """Forget category values that no longer occur in the frame. **Call this after every
+    filter, before grouping.**
+
+    Category dtypes carry their full value list independently of the rows present, and
+    `groupby` on a categorical defaults to `observed=False` — it emits one row per *category*,
+    not per value present. So filtering to 2026 and grouping by team returns 15 rows for the
+    10 teams that played, with Deccan Chargers and four other defunct franchises reported as
+    0 runs. No error, no warning about the extra rows: just five wrong rows in an answer.
+
+        recent = deliveries[deliveries.season_year == 2026]
+        recent = clean.drop_unused_categories(recent)
+        recent.groupby("batting_team", observed=True)["runs_off_bat"].sum()
+
+    Passing `observed=True` fixes the row count on its own and is the more direct habit;
+    this function is for when the frame is handed to code that will not. Both are worth
+    doing. pandas 3.0 makes `observed=True` the default, at which point this becomes
+    unnecessary — until then, the 7.4x memory saving that category dtypes buy comes with
+    this string attached.
+    """
+    out = frame.copy()
+    for column in out.columns:
+        if isinstance(out[column].dtype, pd.CategoricalDtype):
+            out[column] = out[column].cat.remove_unused_categories()
+    return out
+
+
 def drop_always_empty(frame: pd.DataFrame) -> pd.DataFrame:
     """Drop the columns that are empty in every IPL row.
 

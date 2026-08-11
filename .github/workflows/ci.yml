@@ -99,10 +99,15 @@ jobs:
 
       # The committed sample must work with no network at all — this is the
       # first thing a fresh clone does, and the thing most likely to rot.
+      #
+      # Asserts the two matches and both season formats rather than an exact row
+      # count: regenerating the sample after a new season changes the row count
+      # legitimately, and a build that goes red every May trains people to ignore it.
       - name: Describe the committed sample offline
         run: |
           python -m scorebook describe --sample data/sample_deliveries.csv --clean | tee out.txt
-          grep -q "rows      458" out.txt
+          grep -qE "matches   2$" out.txt
+          grep -qE "seasons   2$" out.txt
           grep -q "season_year" out.txt
           echo "offline path works"
 
@@ -113,13 +118,27 @@ jobs:
           key: cricsheet-ipl-${{ hashFiles('src/scorebook/data/loaders.py') }}
           restore-keys: cricsheet-ipl-
 
+      # Lower bounds, not equality. Cricsheet adds a season every May, so the row
+      # and match counts only ever grow — asserting the exact 2026-08-11 figures
+      # would turn a normal upstream update into a broken build.
       - name: Fetch and describe the full archive
         run: |
           scorebook fetch
-          scorebook describe | tee full.txt
-          grep -q "rows      295,732" full.txt
-          grep -q "matches   1,243" full.txt
-          echo "full archive matches the counts measured on 2026-08-11"
+          scorebook describe --clean | tee full.txt
+          python - <<'EOF'
+          import re, sys
+          text = open("full.txt", encoding="utf-8").read()
+          floors = {"rows": 295_732, "matches": 1_243, "seasons": 19}
+          for label, floor in floors.items():
+              found = re.search(rf"^{label}\s+([\d,]+)$", text, re.MULTILINE)
+              if not found:
+                  sys.exit(f"'{label}' missing from `scorebook describe` output")
+              value = int(found.group(1).replace(",", ""))
+              if value < floor:
+                  sys.exit(f"{label}={value:,} is below the measured floor of {floor:,}")
+              print(f"{label}={value:,} (>= {floor:,})")
+          EOF
+          echo "full archive meets the floors measured on 2026-08-11"
 
       # Regenerate the sample and report whether it drifted, without failing.
       # A new IPL season legitimately changes the "most recent match" the sample

@@ -48,4 +48,4 @@ considered and ruled out on data availability, not forgotten.
 | **Right-censored** | A record whose outcome has not finished yet. Relevant if this ever tracks in-progress seasons. |
 | **Survivorship bias** | Drawing a conclusion from records that survived a filter. Q3's trap: short innings have low totals for reasons unrelated to a first-over wicket. |
 | **Category dtype** | Pandas' interned-string type. 19 team names stored as codes instead of 295k separate strings. |
-| **`usecols`** | Reading only the columns you need. Worth 2.8× here — about the same as dtype tuning's 2.3×, and simpler. |
+| **`usecols`** | Reading only the columns you need. Worth 1.4× here — less than the `category` dtype's 2.5×, which is the opposite of the usual advice. |
