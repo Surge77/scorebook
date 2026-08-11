@@ -27,7 +27,7 @@ classifiers = [
 # justify a dependency.
 dependencies = [
     "pandas==2.2.3",
-    "matplotlib==3.10.8",
+    "matplotlib==3.11.1",
 ]
 
 [project.optional-dependencies]
