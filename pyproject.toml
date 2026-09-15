@@ -34,8 +34,8 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "ruff==0.16.2",
-    "pyright==1.1.411",
+    "ruff==0.16.7",
+    "pyright==1.1.414",
     # Not optional. Without these stubs pyright reports phantom `ndarray`
     # errors on ordinary DataFrame indexing.
     "pandas-stubs==3.0.5.260730",
